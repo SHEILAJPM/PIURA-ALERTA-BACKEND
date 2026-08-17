@@ -93,6 +93,10 @@ CREATE TABLE IF NOT EXISTS suscriptores_telegram (
 -- dni es opcional: la cuenta sirve para tener nombre fijo, historial y poder
 -- dar like, no es obligatoria para participar (ver reportes_ciudadanos más
 -- abajo, que admite reportes sin cuenta).
+-- rol gobierna qué dashboard y qué endpoints puede usar cada cuenta (ver
+-- requerirRol en src/middleware/auth.js). El registro público (POST
+-- /api/auth/registro) siempre crea 'ciudadano'; los otros roles se asignan
+-- a mano (ver db/seed.js) o, más adelante, desde el panel de administrador.
 CREATE TABLE IF NOT EXISTS usuarios (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre VARCHAR(100) NOT NULL,
@@ -101,11 +105,21 @@ CREATE TABLE IF NOT EXISTS usuarios (
   direccion VARCHAR(200),
   correo VARCHAR(150) UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  rol VARCHAR(20) NOT NULL DEFAULT 'ciudadano'
+    CHECK (rol IN ('ciudadano', 'operario', 'defensa_civil', 'administrador')),
   creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Por si esta tabla ya existía con dni NOT NULL de una revisión anterior.
 ALTER TABLE usuarios ALTER COLUMN dni DROP NOT NULL;
+
+-- Por si esta tabla ya existía de una revisión anterior sin la columna rol.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol VARCHAR(20) NOT NULL DEFAULT 'ciudadano';
+DO $$ BEGIN
+  ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check
+    CHECK (rol IN ('ciudadano', 'operario', 'defensa_civil', 'administrador'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 3. MÓDULOS CIUDADANOS: mapa GIS y reportes comunitarios

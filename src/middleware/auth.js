@@ -20,6 +20,18 @@ export function requerirSesion(req, res, next) {
   }
 }
 
+// Para rutas de un rol específico (ej. operario verificando reportes). Debe ir
+// después de requerirSesion en la cadena de middlewares, ya que depende de
+// req.usuario.
+export function requerirRol(...rolesPermitidos) {
+  return (req, res, next) => {
+    if (!rolesPermitidos.includes(req.usuario?.rol)) {
+      return res.status(403).json({ error: "No tenés permiso para esta acción" });
+    }
+    next();
+  };
+}
+
 // Para rutas públicas que además quieren saber quién está mirando si hay
 // sesión (ej. marcar si el usuario actual ya le dio like a cada reporte).
 // Nunca rechaza la request: si el token falta o es inválido, sigue sin

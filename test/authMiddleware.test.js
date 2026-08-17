@@ -2,7 +2,7 @@ process.env.JWT_SECRET ??= "test-secret-not-for-production";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requerirSesion, autenticacionOpcional } from "../src/middleware/auth.js";
+import { requerirSesion, requerirRol, autenticacionOpcional } from "../src/middleware/auth.js";
 import { generarToken } from "../src/services/auth.js";
 
 function crearReqFalso(header) {
@@ -65,4 +65,30 @@ test("autenticacionOpcional: con token válido setea req.usuario", () => {
   autenticacionOpcional(req, crearResFalso(), () => (siguienteLlamado = true));
   assert.equal(siguienteLlamado, true);
   assert.equal(req.usuario.id, "u2");
+});
+
+test("requerirRol: usuario con el rol permitido llama a next()", () => {
+  const req = { usuario: { id: "u1", rol: "administrador" } };
+  const res = crearResFalso();
+  let siguienteLlamado = false;
+  requerirRol("administrador", "defensa_civil")(req, res, () => (siguienteLlamado = true));
+  assert.equal(siguienteLlamado, true);
+});
+
+test("requerirRol: usuario con otro rol responde 403", () => {
+  const req = { usuario: { id: "u1", rol: "ciudadano" } };
+  const res = crearResFalso();
+  let siguienteLlamado = false;
+  requerirRol("administrador")(req, res, () => (siguienteLlamado = true));
+  assert.equal(siguienteLlamado, false);
+  assert.equal(res.statusCode, 403);
+});
+
+test("requerirRol: sin req.usuario (no pasó por requerirSesion) responde 403", () => {
+  const req = {};
+  const res = crearResFalso();
+  let siguienteLlamado = false;
+  requerirRol("administrador")(req, res, () => (siguienteLlamado = true));
+  assert.equal(siguienteLlamado, false);
+  assert.equal(res.statusCode, 403);
 });

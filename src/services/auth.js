@@ -21,13 +21,15 @@ export function verificarPassword(password, hash) {
 }
 
 export function generarToken(usuario) {
-  return jwt.sign({ sub: usuario.id, nombre: usuario.nombre }, obtenerSecreto(), {
-    expiresIn: EXPIRA_EN,
-  });
+  return jwt.sign(
+    { sub: usuario.id, nombre: usuario.nombre, rol: usuario.rol ?? "ciudadano" },
+    obtenerSecreto(),
+    { expiresIn: EXPIRA_EN }
+  );
 }
 
 // Lanza si el token es inválido o expiró; el llamador decide qué responder.
 export function verificarToken(token) {
   const payload = jwt.verify(token, obtenerSecreto());
-  return { id: payload.sub, nombre: payload.nombre };
+  return { id: payload.sub, nombre: payload.nombre, rol: payload.rol ?? "ciudadano" };
 }

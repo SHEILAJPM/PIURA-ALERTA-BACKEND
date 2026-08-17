@@ -22,7 +22,7 @@ router.post("/registro", validarBody(registroSchema), async (req, res, next) => 
     const { rows } = await pool.query(
       `INSERT INTO usuarios (nombre, dni, telefono, direccion, correo, password_hash)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, nombre, correo`,
+       RETURNING id, nombre, correo, rol`,
       [nombre, dni ?? null, telefono ?? null, direccion ?? null, correo, passwordHash]
     );
 
@@ -41,7 +41,7 @@ router.post("/login", validarBody(loginSchema), async (req, res, next) => {
   try {
     const { correo, password } = req.body;
     const { rows } = await pool.query(
-      "SELECT id, nombre, correo, password_hash FROM usuarios WHERE correo = $1",
+      "SELECT id, nombre, correo, password_hash, rol FROM usuarios WHERE correo = $1",
       [correo]
     );
 
@@ -65,7 +65,7 @@ router.post("/login", validarBody(loginSchema), async (req, res, next) => {
 router.get("/yo", requerirSesion, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      "SELECT id, nombre, dni, telefono, direccion, correo, creado_en FROM usuarios WHERE id = $1",
+      "SELECT id, nombre, dni, telefono, direccion, correo, rol, creado_en FROM usuarios WHERE id = $1",
       [req.usuario.id]
     );
     if (rows.length === 0) {

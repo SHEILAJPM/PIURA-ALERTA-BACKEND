@@ -3,8 +3,13 @@ import { pool } from "../../db/pool.js";
 import { validarBody } from "../middleware/validate.js";
 import { albergueSchema, ocupacionSchema } from "../validation/schemas.js";
 import { limitadorEscrituraPublica } from "../middleware/rateLimit.js";
+import { requerirSesion, requerirRol } from "../middleware/auth.js";
 
 const router = Router();
+
+// Crear albergues y actualizar su ocupación es tarea operativa (operario,
+// defensa civil o admin), no algo que cualquier visitante deba poder hacer.
+const ROLES_GESTION_ALBERGUES = requerirRol("operario", "defensa_civil", "administrador");
 
 router.get("/", async (_req, res, next) => {
   try {
@@ -21,7 +26,7 @@ router.get("/", async (_req, res, next) => {
   }
 });
 
-router.post("/", limitadorEscrituraPublica, validarBody(albergueSchema), async (req, res, next) => {
+router.post("/", requerirSesion, ROLES_GESTION_ALBERGUES, limitadorEscrituraPublica, validarBody(albergueSchema), async (req, res, next) => {
   try {
     const { nombre, direccion, capacidad, lon, lat } = req.body;
     const { rows } = await pool.query(
@@ -36,7 +41,7 @@ router.post("/", limitadorEscrituraPublica, validarBody(albergueSchema), async (
   }
 });
 
-router.patch("/:id/ocupacion", limitadorEscrituraPublica, validarBody(ocupacionSchema), async (req, res, next) => {
+router.patch("/:id/ocupacion", requerirSesion, ROLES_GESTION_ALBERGUES, limitadorEscrituraPublica, validarBody(ocupacionSchema), async (req, res, next) => {
   try {
     const { ocupacion_actual: ocupacionActual } = req.body;
     const { rows } = await pool.query(
