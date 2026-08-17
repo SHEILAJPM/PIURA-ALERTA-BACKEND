@@ -66,55 +66,42 @@ WS_PORT=8080
 SERIAL_PORT=COM3
 BAUD_RATE=115200
 
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=tu_password
-DB_NAME=piura_alerta
+DATABASE_URL=postgresql://usuario:password@host/basededatos?sslmode=require
 
 TELEGRAM_BOT_TOKEN=tu_token_de_botfather
+
+SENSOR_API_KEY=
+JWT_SECRET=
 ```
+
+* `SERIAL_PORT` vacío desactiva la ingesta por puerto serie (útil mientras se prueba solo con `npm run simulate`).
+* `SENSOR_API_KEY` vacío deja `POST /api/lecturas` sin autenticar (solo recomendable en desarrollo local). Si se define, el ESP32/simulador debe mandarla en el header `x-api-key`.
+* `JWT_SECRET` es obligatorio para `/api/auth/*` y cualquier ruta que requiera sesión (publicar reportes, dar like). Generar uno con `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
 
 ## 🗄️ Base de datos
 
-El proyecto utiliza **PostgreSQL + PostGIS**.
+El proyecto utiliza **PostgreSQL + PostGIS** (hosteado en [Neon](https://neon.tech)).
+El esquema completo vive en [`db/schema.sql`](db/schema.sql) y se aplica con `npm run db:migrate`
+(usa `pg` con SQL crudo — sin ORM — para tener control total sobre las consultas espaciales de PostGIS).
 
-### Tabla de suscriptores
+### Tablas
 
-```sql
-CREATE TABLE suscriptores_telegram (
-  id BIGSERIAL PRIMARY KEY,
-  chat_id BIGINT UNIQUE NOT NULL,
-  nombre_usuario VARCHAR(100),
-  fecha_registro TIMESTAMPTZ DEFAULT NOW()
-);
-```
+**Núcleo IoT** (sensor → lecturas → alertas → Telegram):
 
-### Tabla de lecturas
+* `sensores` — un registro por ESP32 físico, con `ubicacion GEOMETRY(Point,4326)` y los umbrales `nivel_prealerta_cm` / `nivel_alerta_roja_cm`. Soporta múltiples sensores aunque hoy solo haya uno activo.
+* `lecturas` — mediciones del sensor, **particionada por mes** sobre `medido_en` (llegan cada pocos segundos, así que en volumen se vuelve una tabla grande). La función `crear_particion_lecturas(mes)` crea la partición de un mes dado; `src/jobs/particionesCron.js` la llama automáticamente al iniciar el servidor y luego el día 1 de cada mes, para que siempre exista la partición siguiente. Incluye `lecturas_default` como respaldo si falta una partición.
+* `eventos_alerta` — historial de *cambios* de estado (normal → prealerta → alerta_roja), para no reenviar el mismo aviso de Telegram en cada lectura.
+* `suscriptores_telegram` — chats suscritos a las alertas.
 
-```sql
-CREATE TABLE lecturas (
-  id BIGSERIAL PRIMARY KEY,
-  sensor_id_code VARCHAR(50) NOT NULL,
-  nivel_cm NUMERIC(5,2) NOT NULL,
-  porcentaje NUMERIC(5,2) NOT NULL,
-  estado VARCHAR(20) NOT NULL,
-  timestamp TIMESTAMPTZ DEFAULT NOW()
-);
-```
+**Módulos ciudadanos** (mapa GIS y reportes):
 
-### Tabla de albergues
+* `albergues` — refugios con capacidad, ocupación actual y ubicación.
+* `zonas_riesgo` — polígonos de riesgo de inundación (`GEOMETRY(MultiPolygon,4326)`).
+* `usuarios` — cuentas opcionales (nombre, correo y contraseña obligatorios; DNI/teléfono/dirección opcionales, completables después). Sirven para tener nombre fijo, historial y poder dar like sin duplicarlo — **no** son necesarias para publicar un reporte. DNI/teléfono/dirección nunca se exponen en respuestas públicas, solo en `GET /api/auth/yo`.
+* `reportes_ciudadanos` — feed comunitario con descripción, foto (subida a Cloudinary desde el frontend) y ubicación geolocalizada. Si lo publicó una cuenta, `usuario_id` la referencia; si es anónimo, el nombre queda en `autor_nombre` (texto libre, como antes de tener cuentas).
+* `reportes_likes` — un like por `(reporte, usuario)`; `reportes_ciudadanos.likes_count` es un contador denormalizado que se actualiza en la misma transacción.
 
-```sql
-CREATE TABLE albergues (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  nombre VARCHAR(150) NOT NULL,
-  direccion VARCHAR(200),
-  capacidad INT NOT NULL,
-  ocupacion_actual INT DEFAULT 0,
-  ubicacion GEOMETRY(Point, 4326)
-);
-```
+Las rutas de evacuación **no se almacenan**: se calculan en tiempo real combinando `sensores`, `albergues` y `zonas_riesgo` con un motor de ruteo externo.
 
 ## 📦 Instalación
 
@@ -124,13 +111,85 @@ Instalar las dependencias:
 npm install
 ```
 
-## 🚀 Ejecución
+Copiar `.env.example` a `.env` y completar `DATABASE_URL` con la cadena de conexión de Neon (u otro Postgres con PostGIS habilitado).
 
-Ejecutar el servidor en modo desarrollo:
+Aplicar el esquema a la base de datos:
 
 ```bash
-npm run dev
+npm run db:migrate
 ```
+
+Sembrar el sensor de prueba `RIO-PIURA-01` (necesario para poder probar la API):
+
+```bash
+npm run db:seed
+```
+
+## 🚀 Ejecución
+
+Ejecutar el servidor (API REST en `:4000` + WebSocket en `:8080` + bot de Telegram si hay token):
+
+```bash
+npm run dev      # con recarga automática (node --watch)
+npm run start    # sin recarga
+```
+
+Mientras el **ESP32 no esté conectado por SerialPort**, se puede simular el flujo de
+mediciones en otra terminal — envía lecturas por HTTP al mismo endpoint que usará el
+hardware real, así se puede probar todo el pipeline (alertas, WebSocket, Telegram)
+sin el sensor físico:
+
+```bash
+npm run simulate
+```
+
+Cuando el ESP32 sí está conectado (con `SERIAL_PORT` configurado en `.env`), el
+servidor lee su puerto serie directamente (`src/services/serialIngest.js`) y no hace
+falta el simulador. El firmware debe escribir **una línea por lectura**, ya sea un
+número plano (`12.4\n`) o JSON (`{"nivel_cm":12.4}\n`).
+
+## 🧪 Tests
+
+```bash
+npm test
+```
+
+Corre con el test runner nativo de Node (`node --test`, sin dependencias extra) sobre
+la lógica pura: cálculo de estado del sensor, regresión de tendencia y validación de
+inputs. No requiere base de datos.
+
+## 📡 API REST
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| GET | `/health` | Estado del servidor y conexión a la base de datos |
+| GET | `/api/sensores` | Lista de sensores registrados |
+| GET | `/api/lecturas?sensor=&minutos=` | Histórico de lecturas (por defecto, últimos 180 min) |
+| GET | `/api/lecturas/ultima?sensor=` | Última lectura + predicción de tiempo estimado de crecida |
+| POST | `/api/lecturas` 🔒⏱ | Registra una medición (`{ sensor_codigo, nivel_cm }`). La usa el simulador y la ingesta SerialPort del ESP32 |
+| GET | `/api/albergues` | Lista de albergues activos |
+| POST | `/api/albergues` ⏱ | Crea un albergue (`{ nombre, direccion, capacidad, lon, lat }`) |
+| PATCH | `/api/albergues/:id/ocupacion` ⏱ | Actualiza la ocupación actual de un albergue |
+| GET | `/api/zonas-riesgo` | Polígonos de zonas de riesgo |
+| GET | `/api/reportes-ciudadanos?limite=&conFoto=` | Feed de reportes, más recientes primero. `conFoto=true` filtra solo los que tienen foto (fila de "historias" del frontend). Si hay sesión, cada reporte incluye `te_gusta` |
+| POST | `/api/reportes-ciudadanos` ⏱ | Crea un reporte (`{ autor_nombre, descripcion, foto_url, lon, lat }`). No requiere sesión: si hay token, el autor sale de la cuenta y se ignora `autor_nombre`; si no, usa `autor_nombre` (o "Anónimo") |
+| POST | `/api/reportes-ciudadanos/:id/like` 🔑 | Da/quita like (toggle) al reporte — esta sí requiere cuenta, para que no se pueda duplicar |
+| POST | `/api/auth/registro` | Crea una cuenta (`{ nombre, correo, password, dni?, telefono?, direccion? }`) -> `{ token, usuario }` |
+| POST | `/api/auth/login` | `{ correo, password }` -> `{ token, usuario }` |
+| GET | `/api/auth/yo` 🔑 | Perfil completo del usuario autenticado (único lugar que devuelve DNI/teléfono/dirección) |
+
+🔒 = requiere header `x-api-key` si `SENSOR_API_KEY` está configurado.
+🔑 = requiere sesión (`Authorization: Bearer <token>` obtenido en `/api/auth/login` o `/api/auth/registro`).
+⏱ = con rate limiting (además del límite general de 300 req/5min por IP en todo `/api`).
+
+Todos los POST/PATCH validan el body con `zod` (`src/validation/schemas.js`) antes de tocar
+la base de datos — rechazan tipos incorrectos, coordenadas fuera de rango, niveles
+negativos o absurdamente altos, etc.
+
+Cada `POST /api/lecturas` pasa por el **motor de alertas** (`src/services/alertEngine.js`):
+inserta la lectura, calcula el `estado` según los umbrales del sensor y, si cambió respecto
+al último `eventos_alerta`, transmite el cambio por WebSocket y notifica a los suscriptores
+de Telegram activos.
 
 ## 🔌 Puertos
 
