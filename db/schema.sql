@@ -170,6 +170,14 @@ CREATE TABLE IF NOT EXISTS reportes_ciudadanos (
 ALTER TABLE reportes_ciudadanos ALTER COLUMN usuario_id DROP NOT NULL;
 ALTER TABLE reportes_ciudadanos ADD COLUMN IF NOT EXISTS autor_nombre VARCHAR(100);
 
+-- Clasificación best-effort (IA, ver src/services/moderacionIA.js): NULL =
+-- todavía no se pudo analizar (sin API key, timeout, error), true/false =
+-- resultado. Es solo una señal para priorizar en el panel de admin -- nunca
+-- bloquea ni descarta un reporte por sí sola, la decisión la sigue tomando
+-- una persona.
+ALTER TABLE reportes_ciudadanos ADD COLUMN IF NOT EXISTS posible_spam BOOLEAN;
+ALTER TABLE reportes_ciudadanos ADD COLUMN IF NOT EXISTS motivo_ia VARCHAR(200);
+
 CREATE INDEX IF NOT EXISTS idx_reportes_ciudadanos_ubicacion
   ON reportes_ciudadanos USING GIST (ubicacion);
 
@@ -187,3 +195,38 @@ CREATE TABLE IF NOT EXISTS reportes_likes (
   creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (reporte_id, usuario_id)
 );
+
+-- ============================================================
+-- 4. PANEL OPERATIVO: auditoría y mantenimiento
+-- ============================================================
+
+-- Registro best-effort de acciones de escritura del panel (cambiar rol,
+-- moderar un reporte, actualizar aforo, calibrar un sensor, difundir una
+-- alerta manual). Ver src/services/auditoria.js -- nunca bloquea la acción
+-- que audita si el insert falla.
+CREATE TABLE IF NOT EXISTS auditoria_acciones (
+  id BIGSERIAL PRIMARY KEY,
+  usuario_id UUID REFERENCES usuarios(id),
+  usuario_nombre VARCHAR(100) NOT NULL,
+  accion VARCHAR(50) NOT NULL,
+  detalle VARCHAR(300),
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auditoria_acciones_creado_en
+  ON auditoria_acciones (creado_en DESC);
+
+CREATE TABLE IF NOT EXISTS tickets_mantenimiento (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sensor_id UUID REFERENCES sensores(id),
+  titulo VARCHAR(150) NOT NULL,
+  descripcion TEXT,
+  prioridad VARCHAR(20) NOT NULL DEFAULT 'media' CHECK (prioridad IN ('baja', 'media', 'alta')),
+  estado VARCHAR(20) NOT NULL DEFAULT 'abierto' CHECK (estado IN ('abierto', 'en_progreso', 'cerrado')),
+  creado_por UUID REFERENCES usuarios(id),
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_mantenimiento_estado
+  ON tickets_mantenimiento (estado, creado_en DESC);

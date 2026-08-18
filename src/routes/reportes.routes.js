@@ -2,9 +2,10 @@ import { Router } from "express";
 import { pool } from "../../db/pool.js";
 import { transmitir } from "../services/websocket.js";
 import { validarBody } from "../middleware/validate.js";
-import { reporteSchema } from "../validation/schemas.js";
+import { reporteSchema, estadoReporteSchema } from "../validation/schemas.js";
 import { limitadorEscrituraPublica } from "../middleware/rateLimit.js";
-import { requerirSesion, autenticacionOpcional } from "../middleware/auth.js";
+import { requerirSesion, requerirRol, autenticacionOpcional } from "../middleware/auth.js";
+import { analizarReporte } from "../services/moderacionIA.js";
 
 const router = Router();
 
@@ -16,6 +17,7 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
               ST_AsGeoJSON(r.ubicacion)::json AS ubicacion, r.estado, r.likes_count, r.creado_en,
+              r.posible_spam, r.motivo_ia,
               u.id AS usuario_id, COALESCE(u.nombre, r.autor_nombre, 'Anónimo') AS usuario_nombre,
               EXISTS (
                 SELECT 1 FROM reportes_likes rl
@@ -43,15 +45,24 @@ router.post("/", autenticacionOpcional, limitadorEscrituraPublica, validarBody(r
     const usuarioId = req.usuario?.id ?? null;
     const nombreMostrado = req.usuario?.nombre ?? autorNombre ?? "Anónimo";
 
+    // Best-effort (nunca lanza, nunca bloquea el reporte): ver moderacionIA.js.
+    const analisis = await analizarReporte(descripcion);
+
     const tieneUbicacion = typeof lon === "number" && typeof lat === "number";
-    const ubicacionSql = tieneUbicacion ? "ST_SetSRID(ST_MakePoint($5, $6), 4326)" : "NULL";
     const params = [usuarioId, usuarioId ? null : nombreMostrado, descripcion, fotoUrl ?? null];
-    if (tieneUbicacion) params.push(lon, lat);
+    let ubicacionSql = "NULL";
+    if (tieneUbicacion) {
+      params.push(lon, lat);
+      ubicacionSql = "ST_SetSRID(ST_MakePoint($5, $6), 4326)";
+    }
+    const idxSpam = params.length + 1;
+    const idxMotivo = params.length + 2;
+    params.push(analisis?.es_sospechoso ?? null, analisis?.motivo ?? null);
 
     const { rows } = await pool.query(
-      `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion)
-       VALUES ($1, $2, $3, $4, ${ubicacionSql})
-       RETURNING id, descripcion, foto_url, estado, likes_count, creado_en`,
+      `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion, posible_spam, motivo_ia)
+       VALUES ($1, $2, $3, $4, ${ubicacionSql}, $${idxSpam}, $${idxMotivo})
+       RETURNING id, descripcion, foto_url, estado, likes_count, creado_en, posible_spam, motivo_ia`,
       params
     );
 
@@ -111,5 +122,30 @@ router.post("/:id/like", requerirSesion, async (req, res, next) => {
     client.release();
   }
 });
+
+// Moderación: solo roles no públicos pueden cambiar el estado de un reporte
+// (ver rol en db/schema.sql). El registro público nunca crea estos roles.
+router.patch(
+  "/:id/estado",
+  requerirSesion,
+  requerirRol("administrador", "operario", "defensa_civil"),
+  validarBody(estadoReporteSchema),
+  async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(
+        "UPDATE reportes_ciudadanos SET estado = $2 WHERE id = $1 RETURNING id, estado",
+        [req.params.id, req.body.estado]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Reporte no encontrado" });
+      }
+
+      res.json(rows[0]);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;

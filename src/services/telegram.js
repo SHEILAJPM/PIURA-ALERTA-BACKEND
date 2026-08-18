@@ -39,6 +39,21 @@ export function iniciarTelegram(token) {
   return bot;
 }
 
+// Difusión manual (ver POST /api/alertas/difundir), a diferencia de
+// notificarCambioEstado que solo se dispara automático desde alertEngine.js.
+export async function enviarMensajeATodos(mensaje) {
+  if (!bot) return { enviados: 0 };
+  const { rows } = await pool.query("SELECT chat_id FROM suscriptores_telegram WHERE activo = true");
+  await Promise.all(
+    rows.map((s) =>
+      bot.sendMessage(s.chat_id, mensaje).catch((err) =>
+        console.error(`Error enviando Telegram a ${s.chat_id}:`, err.message)
+      )
+    )
+  );
+  return { enviados: rows.length };
+}
+
 export async function notificarCambioEstado(evento) {
   if (!bot) return;
   const { rows } = await pool.query("SELECT chat_id FROM suscriptores_telegram WHERE activo = true");

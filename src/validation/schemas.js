@@ -53,3 +53,57 @@ export const loginSchema = z.object({
   correo: z.string().trim().toLowerCase().email().max(150),
   password: z.string().min(1).max(200),
 });
+
+export const estadoReporteSchema = z.object({
+  estado: z.enum(["pendiente", "verificado", "descartado"]),
+});
+
+export const rolSchema = z.object({
+  rol: z.enum(["ciudadano", "operario", "defensa_civil", "administrador"]),
+});
+
+export const ticketSchema = z.object({
+  sensor_id: z.string().uuid().optional(),
+  titulo: z.string().trim().min(1).max(150),
+  descripcion: z.string().trim().max(2000).optional(),
+  prioridad: z.enum(["baja", "media", "alta"]).default("media"),
+});
+
+export const ticketEstadoSchema = z.object({
+  estado: z.enum(["abierto", "en_progreso", "cerrado"]),
+});
+
+export const calibracionSchema = z
+  .object({
+    nivel_prealerta_cm: z.number().finite().gt(0).lte(2000),
+    nivel_alerta_roja_cm: z.number().finite().gt(0).lte(2000),
+  })
+  .refine((datos) => datos.nivel_alerta_roja_cm > datos.nivel_prealerta_cm, {
+    message: "debe ser mayor que nivel_prealerta_cm",
+    path: ["nivel_alerta_roja_cm"],
+  });
+
+// codigo identifica al ESP32 físico (ej. "RIO-PIURA-02"): lo trae la placa al
+// enviar sus lecturas (ver POST /api/lecturas), por eso debe ser único.
+export const sensorSchema = z
+  .object({
+    codigo: z
+      .string()
+      .trim()
+      .min(1)
+      .max(50)
+      .regex(/^[A-Za-z0-9._-]+$/, "solo letras, números, guiones y puntos"),
+    nombre: z.string().trim().min(1).max(150),
+    lon,
+    lat,
+    nivel_prealerta_cm: z.number().finite().gt(0).lte(2000),
+    nivel_alerta_roja_cm: z.number().finite().gt(0).lte(2000),
+  })
+  .refine((datos) => datos.nivel_alerta_roja_cm > datos.nivel_prealerta_cm, {
+    message: "debe ser mayor que nivel_prealerta_cm",
+    path: ["nivel_alerta_roja_cm"],
+  });
+
+export const difusionSchema = z.object({
+  mensaje: z.string().trim().min(1).max(1000),
+});

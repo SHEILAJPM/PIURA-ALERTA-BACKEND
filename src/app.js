@@ -8,6 +8,10 @@ import alberguesRouter from "./routes/albergues.routes.js";
 import zonasRiesgoRouter from "./routes/zonasRiesgo.routes.js";
 import reportesRouter from "./routes/reportes.routes.js";
 import authRouter from "./routes/auth.routes.js";
+import usuariosRouter from "./routes/usuarios.routes.js";
+import auditoriaRouter from "./routes/auditoria.routes.js";
+import ticketsRouter from "./routes/tickets.routes.js";
+import alertasRouter from "./routes/alertas.routes.js";
 import { manejadorErrores } from "./middleware/errorHandler.js";
 import { limitadorGeneral } from "./middleware/rateLimit.js";
 
@@ -33,5 +37,9 @@ app.use("/api/albergues", alberguesRouter);
 app.use("/api/zonas-riesgo", zonasRiesgoRouter);
 app.use("/api/reportes-ciudadanos", reportesRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/usuarios", usuariosRouter);
+app.use("/api/auditoria", auditoriaRouter);
+app.use("/api/tickets", ticketsRouter);
+app.use("/api/alertas", alertasRouter);
 
 app.use(manejadorErrores);

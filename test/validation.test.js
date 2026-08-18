@@ -7,6 +7,7 @@ import {
   reporteSchema,
   registroSchema,
   loginSchema,
+  estadoReporteSchema,
 } from "../src/validation/schemas.js";
 
 test("lecturaSchema: acepta nivel_cm válido", () => {
@@ -118,5 +119,16 @@ test("loginSchema: acepta correo y password", () => {
 
 test("loginSchema: rechaza sin password", () => {
   const resultado = loginSchema.safeParse({ correo: "sheila@example.com", password: "" });
+  assert.equal(resultado.success, false);
+});
+
+test("estadoReporteSchema: acepta los 3 estados válidos", () => {
+  for (const estado of ["pendiente", "verificado", "descartado"]) {
+    assert.equal(estadoReporteSchema.safeParse({ estado }).success, true);
+  }
+});
+
+test("estadoReporteSchema: rechaza un estado fuera del enum", () => {
+  const resultado = estadoReporteSchema.safeParse({ estado: "aprobado" });
   assert.equal(resultado.success, false);
 });
