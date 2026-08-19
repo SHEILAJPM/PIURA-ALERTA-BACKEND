@@ -9,10 +9,18 @@ import { analizarReporte } from "../services/moderacionIA.js";
 
 const router = Router();
 
+// Paginación por cursor (keyset, no OFFSET): mandar antes=<creado_en del
+// último reporte recibido> para pedir la página siguiente. Más estable que
+// OFFSET si llegan reportes nuevos mientras se pagina (no salta ni repite
+// filas) y no se degrada con páginas lejanas.
 router.get("/", autenticacionOpcional, async (req, res, next) => {
   try {
-    const limite = Number(req.query.limite ?? 30);
+    const limite = Math.min(Math.max(Number(req.query.limite) || 30, 1), 100);
     const soloConFoto = req.query.conFoto === "true";
+    const antes =
+      typeof req.query.antes === "string" && !Number.isNaN(Date.parse(req.query.antes))
+        ? req.query.antes
+        : null;
 
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
@@ -26,9 +34,10 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
        FROM reportes_ciudadanos r
        LEFT JOIN usuarios u ON u.id = r.usuario_id
        WHERE ($3 = false OR r.foto_url IS NOT NULL)
+         AND ($4::timestamptz IS NULL OR r.creado_en < $4::timestamptz)
        ORDER BY r.creado_en DESC
        LIMIT $1`,
-      [limite, req.usuario?.id ?? null, soloConFoto]
+      [limite, req.usuario?.id ?? null, soloConFoto, antes]
     );
     res.json(rows);
   } catch (err) {
@@ -39,45 +48,51 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
 // El reporte no requiere sesión (una emergencia no debería esperar un login):
 // si hay token válido, el autor sale de la cuenta; si no, se usa el nombre
 // libre del body (autor_nombre), igual que antes de tener cuentas.
-router.post("/", autenticacionOpcional, limitadorEscrituraPublica, validarBody(reporteSchema), async (req, res, next) => {
-  try {
-    const { autor_nombre: autorNombre, descripcion, foto_url: fotoUrl, lon, lat } = req.body;
-    const usuarioId = req.usuario?.id ?? null;
-    const nombreMostrado = req.usuario?.nombre ?? autorNombre ?? "Anónimo";
+router.post(
+  "/",
+  autenticacionOpcional,
+  limitadorEscrituraPublica,
+  validarBody(reporteSchema),
+  async (req, res, next) => {
+    try {
+      const { autor_nombre: autorNombre, descripcion, foto_url: fotoUrl, lon, lat } = req.body;
+      const usuarioId = req.usuario?.id ?? null;
+      const nombreMostrado = req.usuario?.nombre ?? autorNombre ?? "Anónimo";
 
-    // Best-effort (nunca lanza, nunca bloquea el reporte): ver moderacionIA.js.
-    const analisis = await analizarReporte(descripcion);
+      // Best-effort (nunca lanza, nunca bloquea el reporte): ver moderacionIA.js.
+      const analisis = await analizarReporte(descripcion);
 
-    const tieneUbicacion = typeof lon === "number" && typeof lat === "number";
-    const params = [usuarioId, usuarioId ? null : nombreMostrado, descripcion, fotoUrl ?? null];
-    let ubicacionSql = "NULL";
-    if (tieneUbicacion) {
-      params.push(lon, lat);
-      ubicacionSql = "ST_SetSRID(ST_MakePoint($5, $6), 4326)";
-    }
-    const idxSpam = params.length + 1;
-    const idxMotivo = params.length + 2;
-    params.push(analisis?.es_sospechoso ?? null, analisis?.motivo ?? null);
+      const tieneUbicacion = typeof lon === "number" && typeof lat === "number";
+      const params = [usuarioId, usuarioId ? null : nombreMostrado, descripcion, fotoUrl ?? null];
+      let ubicacionSql = "NULL";
+      if (tieneUbicacion) {
+        params.push(lon, lat);
+        ubicacionSql = "ST_SetSRID(ST_MakePoint($5, $6), 4326)";
+      }
+      const idxSpam = params.length + 1;
+      const idxMotivo = params.length + 2;
+      params.push(analisis?.es_sospechoso ?? null, analisis?.motivo ?? null);
 
-    const { rows } = await pool.query(
-      `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion, posible_spam, motivo_ia)
+      const { rows } = await pool.query(
+        `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion, posible_spam, motivo_ia)
        VALUES ($1, $2, $3, $4, ${ubicacionSql}, $${idxSpam}, $${idxMotivo})
        RETURNING id, descripcion, foto_url, estado, likes_count, creado_en, posible_spam, motivo_ia`,
-      params
-    );
+        params
+      );
 
-    const reporte = { ...rows[0], usuario_id: usuarioId, usuario_nombre: nombreMostrado, te_gusta: false };
-    transmitir("reporte_ciudadano", reporte);
-    res.status(201).json(reporte);
-  } catch (err) {
-    next(err);
+      const reporte = { ...rows[0], usuario_id: usuarioId, usuario_nombre: nombreMostrado, te_gusta: false };
+      transmitir("reporte_ciudadano", reporte);
+      res.status(201).json(reporte);
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 // Toggle: si el usuario ya le dio like, lo quita; si no, lo agrega. Insert/delete
 // del like y el contador denormalizado van en la misma transacción para que
 // nunca queden desincronizados.
-router.post("/:id/like", requerirSesion, async (req, res, next) => {
+router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -89,15 +104,15 @@ router.post("/:id/like", requerirSesion, async (req, res, next) => {
 
     const yaLeGustaba = existentes.length > 0;
     if (yaLeGustaba) {
-      await client.query(
-        "DELETE FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2",
-        [req.params.id, req.usuario.id]
-      );
+      await client.query("DELETE FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2", [
+        req.params.id,
+        req.usuario.id,
+      ]);
     } else {
-      await client.query(
-        "INSERT INTO reportes_likes (reporte_id, usuario_id) VALUES ($1, $2)",
-        [req.params.id, req.usuario.id]
-      );
+      await client.query("INSERT INTO reportes_likes (reporte_id, usuario_id) VALUES ($1, $2)", [
+        req.params.id,
+        req.usuario.id,
+      ]);
     }
 
     const { rows } = await client.query(
