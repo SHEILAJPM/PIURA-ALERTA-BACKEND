@@ -1,5 +1,3 @@
-process.env.JWT_SECRET ??= "test-secret-not-for-production";
-
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hashearPassword, verificarPassword, generarToken, verificarToken } from "../src/services/auth.js";

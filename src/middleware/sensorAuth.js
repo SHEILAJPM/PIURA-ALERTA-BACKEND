@@ -1,3 +1,5 @@
+import { logger } from "../lib/logger.js";
+
 // Protege el endpoint de ingesta (POST /api/lecturas) con una API key
 // compartida, para que no cualquiera pueda inyectar lecturas falsas y
 // disparar alertas reales (Telegram, WebSocket) a la población.
@@ -17,7 +19,7 @@ export function requerirApiKeySensor(req, res, next) {
 
 export function advertirSiSensorApiKeyFalta() {
   if (!process.env.SENSOR_API_KEY) {
-    console.warn(
+    logger.warn(
       "SENSOR_API_KEY no configurado: POST /api/lecturas queda sin autenticar. " +
         "Configúralo en .env antes de exponer el backend públicamente."
     );

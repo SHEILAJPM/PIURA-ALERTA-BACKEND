@@ -1,4 +1,5 @@
 import { pool } from "../../db/pool.js";
+import { logger } from "../lib/logger.js";
 
 // Best-effort (nunca lanza, nunca bloquea la acción que audita): si falla el
 // insert acá, la acción principal (cambiar un rol, moderar un reporte, etc.)
@@ -12,6 +13,6 @@ export async function registrarAccion({ usuario, accion, detalle }) {
       [usuario?.id ?? null, usuario?.nombre ?? "Sistema", accion, detalle ?? null]
     );
   } catch (err) {
-    console.error("No se pudo registrar en auditoría:", err.message);
+    logger.error({ err }, "No se pudo registrar en auditoría");
   }
 }

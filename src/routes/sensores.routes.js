@@ -35,7 +35,14 @@ router.post(
   validarBody(sensorSchema),
   async (req, res, next) => {
     try {
-      const { codigo, nombre, lon, lat, nivel_prealerta_cm: prealerta, nivel_alerta_roja_cm: alertaRoja } = req.body;
+      const {
+        codigo,
+        nombre,
+        lon,
+        lat,
+        nivel_prealerta_cm: prealerta,
+        nivel_alerta_roja_cm: alertaRoja,
+      } = req.body;
       const { rows } = await pool.query(
         `INSERT INTO sensores (codigo, nombre, ubicacion, nivel_prealerta_cm, nivel_alerta_roja_cm)
          VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
@@ -43,7 +50,11 @@ router.post(
                    nivel_prealerta_cm, nivel_alerta_roja_cm, activo`,
         [codigo, nombre, lon, lat, prealerta, alertaRoja]
       );
-      await registrarAccion({ usuario: req.usuario, accion: "crear_sensor", detalle: `${codigo} — ${nombre}` });
+      await registrarAccion({
+        usuario: req.usuario,
+        accion: "crear_sensor",
+        detalle: `${codigo} — ${nombre}`,
+      });
       res.status(201).json(rows[0]);
     } catch (err) {
       if (err.code === "23505") {
@@ -73,6 +84,7 @@ router.patch(
   "/:id",
   requerirSesion,
   ROLES_NODOS,
+  limitadorEscrituraPublica,
   validarBody(calibracionSchema),
   async (req, res, next) => {
     try {

@@ -32,3 +32,15 @@ export const limitadorEscrituraPublica = rateLimit({
   legacyHeaders: false,
   handler: respuestaLimite,
 });
+
+// Login: mucho más estricto que el límite general (300/5min compartido por
+// todo /api/*), para frenar fuerza bruta de contraseñas por IP sin depender
+// de un bloqueo por cuenta (que además abriría la puerta a bloquear a otro
+// usuario a propósito con solo su correo).
+export const limitadorLogin = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: respuestaLimite,
+});

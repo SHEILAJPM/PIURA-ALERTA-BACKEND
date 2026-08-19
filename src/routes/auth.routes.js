@@ -3,6 +3,7 @@ import { pool } from "../../db/pool.js";
 import { validarBody } from "../middleware/validate.js";
 import { registroSchema, loginSchema } from "../validation/schemas.js";
 import { requerirSesion } from "../middleware/auth.js";
+import { limitadorLogin } from "../middleware/rateLimit.js";
 import { hashearPassword, verificarPassword, generarToken } from "../services/auth.js";
 
 const router = Router();
@@ -37,7 +38,7 @@ router.post("/registro", validarBody(registroSchema), async (req, res, next) => 
   }
 });
 
-router.post("/login", validarBody(loginSchema), async (req, res, next) => {
+router.post("/login", limitadorLogin, validarBody(loginSchema), async (req, res, next) => {
   try {
     const { correo, password } = req.body;
     const { rows } = await pool.query(
