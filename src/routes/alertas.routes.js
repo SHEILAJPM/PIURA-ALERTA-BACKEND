@@ -21,7 +21,11 @@ router.post(
     try {
       const { mensaje } = req.body;
       const resultado = await enviarMensajeATodos(`📣 AVISO DE DEFENSA CIVIL\n\n${mensaje}`);
-      await registrarAccion({ usuario: req.usuario, accion: "difusion_manual", detalle: mensaje.slice(0, 200) });
+      await registrarAccion({
+        usuario: req.usuario,
+        accion: "difusion_manual",
+        detalle: mensaje.slice(0, 200),
+      });
       res.json({ enviado_a: resultado.enviados });
     } catch (err) {
       next(err);

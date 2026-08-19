@@ -29,7 +29,10 @@ async function enviarLectura() {
       body: JSON.stringify({ sensor_codigo: SENSOR_CODIGO, nivel_cm: nivelCm }),
     });
     const datos = await respuesta.json();
-    console.log(`[simulador] nivel=${nivelCm}cm -> ${respuesta.status}`, datos.lectura?.estado ?? datos.error);
+    console.log(
+      `[simulador] nivel=${nivelCm}cm -> ${respuesta.status}`,
+      datos.lectura?.estado ?? datos.error
+    );
   } catch (err) {
     console.error("[simulador] error enviando lectura:", err.message);
   }

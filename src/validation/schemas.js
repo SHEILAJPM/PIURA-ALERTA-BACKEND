@@ -24,21 +24,26 @@ export const ocupacionSchema = z.object({
   ocupacion_actual: z.number().int().gte(0),
 });
 
-export const reporteSchema = z.object({
-  // Solo se usa cuando el reporte es anónimo (sin sesión); si hay sesión, el
-  // nombre sale de la cuenta y esto se ignora. Ver POST /api/reportes-ciudadanos.
-  autor_nombre: z.string().trim().min(1).max(100).optional(),
-  descripcion: z.string().trim().min(1).max(2000),
-  foto_url: z.string().trim().url().max(2000).optional(),
-  lon: lon.optional(),
-  lat: lat.optional(),
-}).refine((datos) => (datos.lon === undefined) === (datos.lat === undefined), {
-  message: "lon y lat deben enviarse juntos",
-});
+export const reporteSchema = z
+  .object({
+    // Solo se usa cuando el reporte es anónimo (sin sesión); si hay sesión, el
+    // nombre sale de la cuenta y esto se ignora. Ver POST /api/reportes-ciudadanos.
+    autor_nombre: z.string().trim().min(1).max(100).optional(),
+    descripcion: z.string().trim().min(1).max(2000),
+    foto_url: z.string().trim().url().max(2000).optional(),
+    lon: lon.optional(),
+    lat: lat.optional(),
+  })
+  .refine((datos) => (datos.lon === undefined) === (datos.lat === undefined), {
+    message: "lon y lat deben enviarse juntos",
+  });
 
 // DNI peruano: 8 dígitos. Se valida como string (no número) para no perder
 // ceros a la izquierda.
-const dni = z.string().trim().regex(/^\d{8}$/, "debe tener 8 dígitos");
+const dni = z
+  .string()
+  .trim()
+  .regex(/^\d{8}$/, "debe tener 8 dígitos");
 
 export const registroSchema = z.object({
   nombre: z.string().trim().min(1).max(100),

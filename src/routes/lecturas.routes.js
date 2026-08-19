@@ -53,22 +53,28 @@ router.get("/", async (req, res, next) => {
 // Registra una medición. Hoy la usa el simulador (npm run simulate); cuando
 // el ESP32 esté conectado por SerialPort, seguirá siendo el mismo punto de
 // entrada (procesarLectura) llamado directamente en vez de vía HTTP.
-router.post("/", limitadorLecturas, requerirApiKeySensor, validarBody(lecturaSchema), async (req, res, next) => {
-  try {
-    const { sensor_codigo: sensorCodigo = SENSOR_POR_DEFECTO, nivel_cm: nivelCm } = req.body;
+router.post(
+  "/",
+  limitadorLecturas,
+  requerirApiKeySensor,
+  validarBody(lecturaSchema),
+  async (req, res, next) => {
+    try {
+      const { sensor_codigo: sensorCodigo = SENSOR_POR_DEFECTO, nivel_cm: nivelCm } = req.body;
 
-    const { lectura, evento } = await procesarLectura({ sensorCodigo, nivelCm });
-    transmitir("lectura", lectura);
+      const { lectura, evento } = await procesarLectura({ sensorCodigo, nivelCm });
+      transmitir("lectura", lectura);
 
-    if (evento) {
-      transmitir("evento_alerta", evento);
-      await notificarCambioEstado(evento);
+      if (evento) {
+        transmitir("evento_alerta", evento);
+        await notificarCambioEstado(evento);
+      }
+
+      res.status(201).json({ lectura, evento });
+    } catch (err) {
+      next(err);
     }
-
-    res.status(201).json({ lectura, evento });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 export default router;
