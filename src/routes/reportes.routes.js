@@ -13,6 +13,13 @@ const router = Router();
 // último reporte recibido> para pedir la página siguiente. Más estable que
 // OFFSET si llegan reportes nuevos mientras se pagina (no salta ni repite
 // filas) y no se degrada con páginas lejanas.
+// Operario/Defensa Civil moderan lo pendiente: una vez verificado o
+// descartado deja de ser su responsabilidad, así que ni siquiera lo
+// reciben acá (no es solo ocultarlo en la UI del panel). Administrador
+// conserva el archivo completo; el feed público (ciudadano/anónimo)
+// tampoco se filtra.
+const ROLES_SOLO_PENDIENTES = ["operario", "defensa_civil"];
+
 router.get("/", autenticacionOpcional, async (req, res, next) => {
   try {
     const limite = Math.min(Math.max(Number(req.query.limite) || 30, 1), 100);
@@ -21,6 +28,7 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
       typeof req.query.antes === "string" && !Number.isNaN(Date.parse(req.query.antes))
         ? req.query.antes
         : null;
+    const soloPendientes = ROLES_SOLO_PENDIENTES.includes(req.usuario?.rol);
 
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
@@ -35,9 +43,10 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
        LEFT JOIN usuarios u ON u.id = r.usuario_id
        WHERE ($3 = false OR r.foto_url IS NOT NULL)
          AND ($4::timestamptz IS NULL OR r.creado_en < $4::timestamptz)
+         AND ($5 = false OR r.estado = 'pendiente')
        ORDER BY r.creado_en DESC
        LIMIT $1`,
-      [limite, req.usuario?.id ?? null, soloConFoto, antes]
+      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes]
     );
     res.json(rows);
   } catch (err) {
