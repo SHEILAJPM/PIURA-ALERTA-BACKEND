@@ -16,4 +16,10 @@ export const pool = new Pool({
   // entorno local se necesita un Postgres con certificado autofirmado, exportar
   // NODE_TLS_REJECT_UNAUTHORIZED=0 en ese entorno puntual en vez de debilitar esto.
   ssl: { rejectUnauthorized: true },
+  // Explícito (el default de `pg` es max:10 sin timeouts) para no agotar el
+  // límite de conexiones del plan gratuito de Neon si el host de producción
+  // llega a correr más de una instancia del backend.
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
 });

@@ -1,0 +1,28 @@
+# Blueprint de Render (https://render.com/docs/blueprint-spec). Importar este
+# repo en Render como "Blueprint" crea el servicio con esta config ya cargada;
+# solo faltará completar a mano los envVars marcados `sync: false` (secretos
+# que Render no debe generar ni versionar). Ver DEPLOY.md para el paso a paso.
+services:
+  - type: web
+    name: piura-alerta-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SENSOR_API_KEY
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
