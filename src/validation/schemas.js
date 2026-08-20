@@ -45,13 +45,52 @@ const dni = z
   .trim()
   .regex(/^\d{8}$/, "debe tener 8 dígitos");
 
-export const registroSchema = z.object({
-  nombre: z.string().trim().min(1).max(100),
-  dni: dni.optional(),
-  telefono: z.string().trim().max(20).optional(),
-  direccion: z.string().trim().max(200).optional(),
+export const registroSchema = z
+  .object({
+    nombre: z.string().trim().min(1).max(100),
+    dni: dni.optional(),
+    telefono: z.string().trim().max(20).optional(),
+    direccion: z.string().trim().max(200).optional(),
+    correo: z.string().trim().toLowerCase().email().max(150),
+    password: z.string().min(8).max(200),
+    // Opt-in explícito: tener teléfono no implica querer recibir SMS.
+    recibir_alertas_sms: z.boolean().optional(),
+  })
+  .refine((datos) => !datos.recibir_alertas_sms || !!datos.telefono, {
+    message: "Para recibir alertas por SMS primero hay que indicar un teléfono",
+    path: ["recibir_alertas_sms"],
+  });
+
+// Perfil propio: nombre/teléfono/dirección/opt-in de SMS se pueden editar;
+// DNI y correo no (correo es el identificador de login; DNI es el dato
+// sensible que se pidió una sola vez al registrarse). Al menos un campo, si
+// no no tiene sentido el request.
+export const perfilSchema = z
+  .object({
+    nombre: z.string().trim().min(1).max(100).optional(),
+    telefono: z.string().trim().max(20).optional(),
+    direccion: z.string().trim().max(200).optional(),
+    recibir_alertas_sms: z.boolean().optional(),
+    // null = "todos los sensores" (quita el filtro); un uuid = solo ese
+    // sensor. Ver el manejo especial en PATCH /api/auth/yo.
+    sensor_interes_id: z.string().uuid().nullable().optional(),
+  })
+  .refine((datos) => Object.values(datos).some((v) => v !== undefined), {
+    message: "Nada para actualizar",
+  });
+
+export const cambiarPasswordSchema = z.object({
+  passwordActual: z.string().min(1).max(200),
+  passwordNueva: z.string().min(8).max(200),
+});
+
+export const olvidePasswordSchema = z.object({
   correo: z.string().trim().toLowerCase().email().max(150),
-  password: z.string().min(8).max(200),
+});
+
+export const restablecerPasswordSchema = z.object({
+  token: z.string().trim().min(1).max(200),
+  passwordNueva: z.string().min(8).max(200),
 });
 
 export const loginSchema = z.object({
@@ -111,4 +150,19 @@ export const sensorSchema = z
 
 export const difusionSchema = z.object({
   mensaje: z.string().trim().min(1).max(1000),
+});
+
+// Forma estándar de PushSubscriptionJSON (la que entrega
+// PushSubscription.toJSON() en el navegador) — solo se validan los campos
+// que realmente se guardan.
+export const pushSuscripcionSchema = z.object({
+  endpoint: z.string().trim().url().max(500),
+  keys: z.object({
+    p256dh: z.string().trim().min(1).max(255),
+    auth: z.string().trim().min(1).max(255),
+  }),
+});
+
+export const pushDesuscripcionSchema = z.object({
+  endpoint: z.string().trim().url().max(500),
 });

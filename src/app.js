@@ -14,6 +14,7 @@ import usuariosRouter from "./routes/usuarios.routes.js";
 import auditoriaRouter from "./routes/auditoria.routes.js";
 import ticketsRouter from "./routes/tickets.routes.js";
 import alertasRouter from "./routes/alertas.routes.js";
+import pushRouter from "./routes/push.routes.js";
 import { manejadorErrores } from "./middleware/errorHandler.js";
 import { limitadorGeneral } from "./middleware/rateLimit.js";
 
@@ -70,5 +71,6 @@ app.use("/api/usuarios", usuariosRouter);
 app.use("/api/auditoria", auditoriaRouter);
 app.use("/api/tickets", ticketsRouter);
 app.use("/api/alertas", alertasRouter);
+app.use("/api/push", pushRouter);
 
 app.use(manejadorErrores);

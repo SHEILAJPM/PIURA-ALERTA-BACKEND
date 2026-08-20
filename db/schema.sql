@@ -86,6 +86,19 @@ CREATE TABLE IF NOT EXISTS suscriptores_telegram (
   fecha_registro TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Suscripciones a notificaciones push del navegador (Web Push estándar, sin
+-- cuenta: igual que Telegram, cualquier visitante puede suscribirse). endpoint
+-- es único por dispositivo/navegador: lo asigna el push service del navegador
+-- (FCM, Mozilla, etc.), p256dh/auth son las claves de cifrado de esa
+-- suscripción particular. Ver src/services/webpush.js.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id BIGSERIAL PRIMARY KEY,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh VARCHAR(255) NOT NULL,
+  auth VARCHAR(255) NOT NULL,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ============================================================
 -- 2. USUARIOS: cuentas para publicar reportes y dar like
 -- ============================================================
@@ -107,6 +120,14 @@ CREATE TABLE IF NOT EXISTS usuarios (
   password_hash TEXT NOT NULL,
   rol VARCHAR(20) NOT NULL DEFAULT 'ciudadano'
     CHECK (rol IN ('ciudadano', 'operario', 'defensa_civil', 'administrador')),
+  -- Tener teléfono guardado no implica consentimiento para recibir SMS: es
+  -- un opt-in aparte (ver PATCH /api/auth/yo), no una consecuencia automática
+  -- de completar el campo. Ver src/services/sms.js.
+  recibir_alertas_sms BOOLEAN NOT NULL DEFAULT false,
+  -- NULL = le interesan las alertas de todos los sensores (default). Si se
+  -- setea, el SMS solo se manda cuando cambia de estado ese sensor puntual.
+  -- Ver notificarCambioEstadoSMS en src/services/sms.js.
+  sensor_interes_id UUID REFERENCES sensores(id),
   creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -120,6 +141,25 @@ DO $$ BEGIN
     CHECK (rol IN ('ciudadano', 'operario', 'defensa_civil', 'administrador'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- Por si esta tabla ya existía de una revisión anterior sin estas columnas.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS recibir_alertas_sms BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS sensor_interes_id UUID REFERENCES sensores(id);
+
+-- Token de un solo uso para restablecer contraseña (ver POST
+-- /api/auth/olvide-password y /api/auth/restablecer-password). Se guarda el
+-- hash del token, nunca el token en claro, igual que password_hash — si se
+-- filtrara la tabla, no alcanzaría para restablecer ninguna cuenta.
+CREATE TABLE IF NOT EXISTS restablecimientos_password (
+  id BIGSERIAL PRIMARY KEY,
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expira_en TIMESTAMPTZ NOT NULL,
+  usado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_restablecimientos_usuario ON restablecimientos_password (usuario_id);
 
 -- ============================================================
 -- 3. MÓDULOS CIUDADANOS: mapa GIS y reportes comunitarios

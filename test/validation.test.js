@@ -8,6 +8,9 @@ import {
   registroSchema,
   loginSchema,
   estadoReporteSchema,
+  perfilSchema,
+  olvidePasswordSchema,
+  restablecerPasswordSchema,
 } from "../src/validation/schemas.js";
 
 test("lecturaSchema: acepta nivel_cm válido", () => {
@@ -112,6 +115,20 @@ test("registroSchema: rechaza contraseña muy corta", () => {
   assert.equal(resultado.success, false);
 });
 
+test("registroSchema: rechaza recibir_alertas_sms sin teléfono", () => {
+  const resultado = registroSchema.safeParse({ ...registroValido, recibir_alertas_sms: true });
+  assert.equal(resultado.success, false);
+});
+
+test("registroSchema: acepta recibir_alertas_sms cuando hay teléfono", () => {
+  const resultado = registroSchema.safeParse({
+    ...registroValido,
+    telefono: "987654321",
+    recibir_alertas_sms: true,
+  });
+  assert.equal(resultado.success, true);
+});
+
 test("loginSchema: acepta correo y password", () => {
   const resultado = loginSchema.safeParse({ correo: "sheila@example.com", password: "cualquiera" });
   assert.equal(resultado.success, true);
@@ -130,5 +147,38 @@ test("estadoReporteSchema: acepta los 3 estados válidos", () => {
 
 test("estadoReporteSchema: rechaza un estado fuera del enum", () => {
   const resultado = estadoReporteSchema.safeParse({ estado: "aprobado" });
+  assert.equal(resultado.success, false);
+});
+
+test("perfilSchema: acepta sensor_interes_id como null (volver a 'todos los sensores')", () => {
+  const resultado = perfilSchema.safeParse({ sensor_interes_id: null });
+  assert.equal(resultado.success, true);
+});
+
+test("perfilSchema: acepta sensor_interes_id como un uuid válido", () => {
+  const resultado = perfilSchema.safeParse({ sensor_interes_id: "8247e090-5971-4d57-b168-4a2b88e6aa04" });
+  assert.equal(resultado.success, true);
+});
+
+test("perfilSchema: rechaza sensor_interes_id que no es un uuid", () => {
+  const resultado = perfilSchema.safeParse({ sensor_interes_id: "no-es-un-uuid" });
+  assert.equal(resultado.success, false);
+});
+
+test("olvidePasswordSchema: acepta un correo válido", () => {
+  assert.equal(olvidePasswordSchema.safeParse({ correo: "sheila@example.com" }).success, true);
+});
+
+test("olvidePasswordSchema: rechaza un correo inválido", () => {
+  assert.equal(olvidePasswordSchema.safeParse({ correo: "no-es-un-correo" }).success, false);
+});
+
+test("restablecerPasswordSchema: acepta token y contraseña nueva válidos", () => {
+  const resultado = restablecerPasswordSchema.safeParse({ token: "abc123", passwordNueva: "claveSegura123" });
+  assert.equal(resultado.success, true);
+});
+
+test("restablecerPasswordSchema: rechaza contraseña nueva muy corta", () => {
+  const resultado = restablecerPasswordSchema.safeParse({ token: "abc123", passwordNueva: "1234567" });
   assert.equal(resultado.success, false);
 });

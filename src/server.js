@@ -9,6 +9,9 @@ import { pool } from "../db/pool.js";
 import { logger } from "./lib/logger.js";
 import { iniciarWebSocket, cerrarWebSocket } from "./services/websocket.js";
 import { iniciarTelegram, detenerTelegram } from "./services/telegram.js";
+import { iniciarWebPush } from "./services/webpush.js";
+import { iniciarSMS } from "./services/sms.js";
+import { iniciarEmail } from "./services/email.js";
 import { iniciarIngestaSerial } from "./services/serialIngest.js";
 import { iniciarCronParticiones } from "./jobs/particionesCron.js";
 import { advertirSiSensorApiKeyFalta } from "./middleware/sensorAuth.js";
@@ -33,6 +36,9 @@ const puertoSerial = iniciarIngestaSerial({
 
 const tareaCron = iniciarCronParticiones();
 iniciarTelegram(process.env.TELEGRAM_BOT_TOKEN);
+iniciarWebPush();
+iniciarSMS();
+iniciarEmail();
 advertirSiSensorApiKeyFalta();
 
 // Apagado ordenado: en Render/Railway/Docker, `docker stop`/redeploys mandan

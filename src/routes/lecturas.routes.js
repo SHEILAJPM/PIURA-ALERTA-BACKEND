@@ -4,6 +4,8 @@ import { procesarLectura } from "../services/alertEngine.js";
 import { estimarTiempoCrecida } from "../services/prediccion.js";
 import { transmitir } from "../services/websocket.js";
 import { notificarCambioEstado } from "../services/telegram.js";
+import { notificarCambioEstadoPush } from "../services/webpush.js";
+import { notificarCambioEstadoSMS } from "../services/sms.js";
 import { validarBody } from "../middleware/validate.js";
 import { lecturaSchema } from "../validation/schemas.js";
 import { limitadorLecturas } from "../middleware/rateLimit.js";
@@ -68,6 +70,8 @@ router.post(
       if (evento) {
         transmitir("evento_alerta", evento);
         await notificarCambioEstado(evento);
+        await notificarCambioEstadoPush(evento);
+        await notificarCambioEstadoSMS(evento);
       }
 
       res.status(201).json({ lectura, evento });
