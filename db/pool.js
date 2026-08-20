@@ -1,5 +1,6 @@
 import pg from "pg";
 import dotenv from "dotenv";
+import { logger } from "../src/lib/logger.js";
 
 dotenv.config();
 
@@ -22,4 +23,11 @@ export const pool = new Pool({
   max: 5,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
+});
+
+// Neon puede cortar una conexión ociosa desde su lado (ECONNRESET) en
+// cualquier momento; sin este handler ese error no tiene listener y Node
+// lo re-lanza como excepción no capturada, tumbando todo el proceso.
+pool.on("error", (err) => {
+  logger.error({ err }, "Error en una conexión ociosa del pool de Postgres");
 });
