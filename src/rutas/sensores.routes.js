@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { pool } from "../../db/pool.js";
-import { obtenerEstadoSensores } from "../services/sensorEstado.js";
-import { validarBody } from "../middleware/validate.js";
-import { calibracionSchema, sensorSchema } from "../validation/schemas.js";
-import { requerirSesion, requerirRol } from "../middleware/auth.js";
-import { limitadorEscrituraPublica } from "../middleware/rateLimit.js";
-import { registrarAccion } from "../services/auditoria.js";
+import { pool } from "../../bd/pool.js";
+import { obtenerEstadoSensores } from "../servicios/sensorEstado.js";
+import { validarBody } from "../intermediarios/validate.js";
+import { activoSensorSchema, calibracionSchema, sensorSchema } from "../validacion/schemas.js";
+import { requerirSesion, requerirRol } from "../intermediarios/auth.js";
+import { limitadorEscrituraPublica } from "../intermediarios/rateLimit.js";
+import { registrarAccion } from "../servicios/auditoria.js";
 
 const router = Router();
 const ROLES_NODOS = requerirRol("operario", "administrador");
@@ -102,6 +102,38 @@ router.patch(
         usuario: req.usuario,
         accion: "calibrar_sensor",
         detalle: `${rows[0].codigo}: prealerta=${prealerta}cm, alerta_roja=${alertaRoja}cm`,
+      });
+      res.json(rows[0]);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Desactivar/reactivar en vez de borrar: hay lecturas y eventos_alerta que
+// referencian este sensor (FK), y un sensor desactivado ya deja de aceptar
+// lecturas nuevas (ver el AND activo = true en alertEngine.procesarLectura)
+// sin perder su historial ni tener que tocar la base a mano.
+router.patch(
+  "/:id/activo",
+  requerirSesion,
+  ROLES_NODOS,
+  limitadorEscrituraPublica,
+  validarBody(activoSensorSchema),
+  async (req, res, next) => {
+    try {
+      const { activo } = req.body;
+      const { rows } = await pool.query(
+        `UPDATE sensores SET activo = $1 WHERE id = $2 RETURNING id, codigo, activo`,
+        [activo, req.params.id]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Sensor no encontrado" });
+      }
+      await registrarAccion({
+        usuario: req.usuario,
+        accion: activo ? "activar_sensor" : "desactivar_sensor",
+        detalle: rows[0].codigo,
       });
       res.json(rows[0]);
     } catch (err) {
