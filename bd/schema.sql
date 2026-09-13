@@ -313,3 +313,27 @@ CREATE TABLE IF NOT EXISTS asistente_feedback (
 
 CREATE INDEX IF NOT EXISTS idx_asistente_feedback_creado_en
   ON asistente_feedback (creado_en DESC);
+
+-- "Estoy a salvo": un registro por cada vez que alguien lo marca (no una
+-- columna en usuarios) para que Defensa Civil vea el historial completo
+-- durante una emergencia larga, no solo el último estado.
+CREATE TABLE IF NOT EXISTS chequeos_seguridad (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chequeos_seguridad_usuario
+  ON chequeos_seguridad (usuario_id, creado_en DESC);
+
+-- Verificación comunitaria de reportes: aparte del like (que es solo
+-- aprecio), esto es una señal de "esto lo confirmo, es real" -- mismo patrón
+-- que reportes_likes.
+ALTER TABLE reportes_ciudadanos ADD COLUMN IF NOT EXISTS confirmaciones_count INT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS reportes_confirmaciones (
+  reporte_id UUID NOT NULL REFERENCES reportes_ciudadanos(id) ON DELETE CASCADE,
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (reporte_id, usuario_id)
+);
