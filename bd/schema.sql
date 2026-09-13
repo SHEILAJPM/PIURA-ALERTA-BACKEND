@@ -60,7 +60,7 @@ $$ LANGUAGE plpgsql;
 -- para que siempre exista la partición del próximo mes.
 SELECT crear_particion_lecturas(CURRENT_DATE);
 SELECT crear_particion_lecturas((CURRENT_DATE + INTERVAL '1 month')::date);
-SELECT crear_particion_lecturas((CURRENT_DATE + INTERVAL '2 month')::date);
+SELECT crear_particiWon_lecturas((CURRENT_DATE + INTERVAL '2 month')::date);
 
 -- Registra cada CAMBIO de estado (normal->prealerta->alerta_roja), no cada
 -- lectura. Evita reenviar el mismo aviso de Telegram y da el historial de
@@ -360,3 +360,39 @@ CREATE INDEX IF NOT EXISTS idx_alertas_sos_ubicacion
 
 CREATE INDEX IF NOT EXISTS idx_alertas_sos_estado
   ON alertas_sos (estado, creado_en DESC);
+
+-- ============================================================
+-- 5. CONFIGURACIÓN DEL SISTEMA: interruptores globales de notificaciones
+-- ============================================================
+
+-- Fila única (id fijo = 1): apaga/prende un canal de notificación para TODO
+-- el sistema, además del opt-in que ya tiene cada usuario/suscriptor. Sirve,
+-- por ejemplo, para cortar los SMS sin tocar código si Twilio se queda sin
+-- saldo, o ajustar el radio de las notificaciones push geolocalizadas sin
+-- redeploy. Solo gobierna avisos automáticos (cambio de estado del río,
+-- vencimiento de póliza) -- nunca la recuperación de contraseña, que es un
+-- flujo de cuenta, no una alerta. Ver src/servicios/configuracion.js.
+CREATE TABLE IF NOT EXISTS configuracion_sistema (
+  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  sms_habilitado BOOLEAN NOT NULL DEFAULT true,
+  email_habilitado BOOLEAN NOT NULL DEFAULT true,
+  push_habilitado BOOLEAN NOT NULL DEFAULT true,
+  telegram_habilitado BOOLEAN NOT NULL DEFAULT true,
+  -- Radio (desde el borde de la zona de riesgo activa) dentro del cual se
+  -- notifica a un suscriptor push con ubicación guardada. Ver
+  -- notificarCambioEstadoPush en src/servicios/webpush.js.
+  radio_notificacion_push_km NUMERIC(5,2) NOT NULL DEFAULT 5 CHECK (radio_notificacion_push_km > 0),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actualizado_por UUID REFERENCES usuarios(id)
+);
+
+INSERT INTO configuracion_sistema (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- Ubicación opcional del navegador que se suscribió (si dio permiso de
+-- geolocalización): permite mandar push solo a quienes están cerca de una
+-- zona de riesgo activa en vez de a todos los suscriptores. NULL = no dio
+-- permiso, sigue recibiendo todo como antes (ver notificarCambioEstadoPush).
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS ubicacion GEOMETRY(Point, 4326);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_ubicacion
+  ON push_subscriptions USING GIST (ubicacion);
