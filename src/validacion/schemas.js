@@ -196,3 +196,16 @@ export const feedbackAsistenteSchema = z.object({
   respuesta: z.string().trim().min(1).max(2000),
   util: z.boolean(),
 });
+
+// A diferencia de reporteSchema, acá lon/lat son obligatorios: un SOS sin
+// ubicación no le sirve a Defensa Civil para nada.
+export const sosSchema = z.object({
+  nombre_contacto: z.string().trim().min(1).max(100).optional(),
+  telefono_contacto: z.string().trim().max(20).optional(),
+  lon,
+  lat,
+});
+
+export const sosEstadoSchema = z.object({
+  estado: z.enum(["pendiente", "atendido"]),
+});
