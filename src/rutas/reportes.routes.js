@@ -150,6 +150,18 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
   try {
     await client.query("BEGIN");
 
+    // Sin este lock, un like seguido de un unlike de verdad (dos requests
+    // distintas, no un doble-click de la misma) pueden pisarse: las dos
+    // transacciones leen "no existe" antes de que cualquiera confirme su
+    // escritura, y el toggle que debía cancelarse termina sumando en vez de
+    // anularse. pg_advisory_xact_lock serializa nada más que esta combinación
+    // puntual de reporte+usuario -- otros usuarios y otros reportes siguen
+    // sin bloquearse entre sí -- y se libera solo al terminar la transacción.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))", [
+      req.params.id,
+      req.usuario.id,
+    ]);
+
     const { rows: existentes } = await client.query(
       "SELECT 1 FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2",
       [req.params.id, req.usuario.id]
@@ -202,6 +214,13 @@ router.post("/:id/confirmar", requerirSesion, limitadorEscrituraPublica, async (
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // Mismo motivo que en /like (ver ese comentario): serializa solo esta
+    // combinación puntual de reporte+usuario.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))", [
+      req.params.id,
+      req.usuario.id,
+    ]);
 
     const { rows: existentes } = await client.query(
       "SELECT 1 FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2",
