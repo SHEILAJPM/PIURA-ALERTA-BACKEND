@@ -36,6 +36,9 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
         : null;
     const soloPendientes = ROLES_SOLO_PENDIENTES.includes(req.usuario?.rol);
     const verArchivados = req.usuario?.rol === "administrador" && req.query.incluirArchivados === "true";
+    // "Mis reportes" (ver MisReportes.jsx): solo tiene sentido con sesión: sin
+    // usuario_id que comparar no hay "propios" que filtrar.
+    const soloMios = Boolean(req.usuario) && req.query.soloMios === "true";
 
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
@@ -54,14 +57,16 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
        LEFT JOIN usuarios u ON u.id = r.usuario_id
        WHERE ($3 = false OR r.foto_url IS NOT NULL)
          AND ($4::timestamptz IS NULL OR r.creado_en < $4::timestamptz)
+         AND ($7 = false OR r.usuario_id = $2)
          AND (
            ($5 = true AND r.estado = 'pendiente')
            OR $6 = true
-           OR ($5 = false AND $6 = false AND r.estado <> 'descartado')
+           OR $7 = true
+           OR ($5 = false AND $6 = false AND $7 = false AND r.estado <> 'descartado')
          )
        ORDER BY r.creado_en DESC
        LIMIT $1`,
-      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes, verArchivados]
+      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes, verArchivados, soloMios]
     );
     res.json(rows);
   } catch (err) {
