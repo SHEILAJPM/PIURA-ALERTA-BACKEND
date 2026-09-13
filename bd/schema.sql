@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS suscriptores_telegram (
 -- cuenta: igual que Telegram, cualquier visitante puede suscribirse). endpoint
 -- es único por dispositivo/navegador: lo asigna el push service del navegador
 -- (FCM, Mozilla, etc.), p256dh/auth son las claves de cifrado de esa
--- suscripción particular. Ver src/services/webpush.js.
+-- suscripción particular. Ver src/servicios/webpush.js.
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id BIGSERIAL PRIMARY KEY,
   endpoint TEXT UNIQUE NOT NULL,
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 -- dar like, no es obligatoria para participar (ver reportes_ciudadanos más
 -- abajo, que admite reportes sin cuenta).
 -- rol gobierna qué dashboard y qué endpoints puede usar cada cuenta (ver
--- requerirRol en src/middleware/auth.js). El registro público (POST
+-- requerirRol en src/intermediarios/auth.js). El registro público (POST
 -- /api/auth/registro) siempre crea 'ciudadano'; los otros roles se asignan
 -- a mano (ver db/seed.js) o, más adelante, desde el panel de administrador.
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -122,11 +122,11 @@ CREATE TABLE IF NOT EXISTS usuarios (
     CHECK (rol IN ('ciudadano', 'operario', 'defensa_civil', 'administrador')),
   -- Tener teléfono guardado no implica consentimiento para recibir SMS: es
   -- un opt-in aparte (ver PATCH /api/auth/yo), no una consecuencia automática
-  -- de completar el campo. Ver src/services/sms.js.
+  -- de completar el campo. Ver src/servicios/sms.js.
   recibir_alertas_sms BOOLEAN NOT NULL DEFAULT false,
   -- NULL = le interesan las alertas de todos los sensores (default). Si se
   -- setea, el SMS solo se manda cuando cambia de estado ese sensor puntual.
-  -- Ver notificarCambioEstadoSMS en src/services/sms.js.
+  -- Ver notificarCambioEstadoSMS en src/servicios/sms.js.
   sensor_interes_id UUID REFERENCES sensores(id),
   creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -192,7 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_zonas_riesgo_geom
 
 -- usuario_id es opcional: si el reporte lo publicó una cuenta, sale de ahí
 -- (autor_nombre se ignora); si es anónimo, autor_nombre trae el nombre libre
--- (ver POST /api/reportes-ciudadanos en src/routes/reportes.routes.js).
+-- (ver POST /api/reportes-ciudadanos en src/rutas/reportes.routes.js).
 CREATE TABLE IF NOT EXISTS reportes_ciudadanos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   usuario_id UUID REFERENCES usuarios(id),
@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS reportes_ciudadanos (
 ALTER TABLE reportes_ciudadanos ALTER COLUMN usuario_id DROP NOT NULL;
 ALTER TABLE reportes_ciudadanos ADD COLUMN IF NOT EXISTS autor_nombre VARCHAR(100);
 
--- Clasificación best-effort (IA, ver src/services/moderacionIA.js): NULL =
+-- Clasificación best-effort (IA, ver src/servicios/moderacionIA.js): NULL =
 -- todavía no se pudo analizar (sin API key, timeout, error), true/false =
 -- resultado. Es solo una señal para priorizar en el panel de admin -- nunca
 -- bloquea ni descarta un reporte por sí sola, la decisión la sigue tomando
@@ -227,7 +227,7 @@ CREATE INDEX IF NOT EXISTS idx_reportes_ciudadanos_creado_en
 -- Likes: clave primaria compuesta evita que un mismo usuario le dé like dos
 -- veces al mismo reporte. likes_count en reportes_ciudadanos queda como
 -- contador denormalizado (se actualiza junto con el insert/delete acá, en la
--- misma transacción, ver src/routes/reportes.routes.js) para no tener que
+-- misma transacción, ver src/rutas/reportes.routes.js) para no tener que
 -- hacer COUNT(*) sobre esta tabla en cada carga del feed.
 CREATE TABLE IF NOT EXISTS reportes_likes (
   reporte_id UUID NOT NULL REFERENCES reportes_ciudadanos(id) ON DELETE CASCADE,
@@ -242,7 +242,7 @@ CREATE TABLE IF NOT EXISTS reportes_likes (
 
 -- Registro best-effort de acciones de escritura del panel (cambiar rol,
 -- moderar un reporte, actualizar aforo, calibrar un sensor, difundir una
--- alerta manual). Ver src/services/auditoria.js -- nunca bloquea la acción
+-- alerta manual). Ver src/servicios/auditoria.js -- nunca bloquea la acción
 -- que audita si el insert falla.
 CREATE TABLE IF NOT EXISTS auditoria_acciones (
   id BIGSERIAL PRIMARY KEY,
@@ -270,3 +270,46 @@ CREATE TABLE IF NOT EXISTS tickets_mantenimiento (
 
 CREATE INDEX IF NOT EXISTS idx_tickets_mantenimiento_estado
   ON tickets_mantenimiento (estado, creado_en DESC);
+
+-- Seguro prepago contra inundaciones: se compra por periodos (1/3/6/12
+-- meses, ver PLANES en src/servicios/pagos.js), nunca se cobra solo. No hay
+-- columna `estado`: la vigencia se calcula comparando fecha_fin con el
+-- momento actual (ver GET /api/polizas/mia), así no hace falta un cron que
+-- la mantenga sincronizada.
+CREATE TABLE IF NOT EXISTS polizas_seguro (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario_id UUID NOT NULL REFERENCES usuarios(id),
+  meses SMALLINT NOT NULL CHECK (meses IN (1, 3, 6, 12)),
+  precio_centavos INTEGER NOT NULL CHECK (precio_centavos > 0),
+  moneda VARCHAR(3) NOT NULL DEFAULT 'PEN',
+  -- Único: si Stripe reintenta la entrega del webhook (puede pasar), el
+  -- segundo intento no crea una póliza duplicada.
+  stripe_checkout_session_id VARCHAR(200) UNIQUE NOT NULL,
+  fecha_inicio TIMESTAMPTZ NOT NULL,
+  fecha_fin TIMESTAMPTZ NOT NULL,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_polizas_seguro_usuario_vigencia
+  ON polizas_seguro (usuario_id, fecha_fin DESC);
+
+-- Evita mandar el correo de "tu póliza está por vencer" más de una vez por
+-- póliza (ver avisosVencimientoCron.js): sin esto, correr el cron todos los
+-- días re-notificaría lo mismo hasta que la póliza venza de verdad.
+ALTER TABLE polizas_seguro ADD COLUMN IF NOT EXISTS aviso_vencimiento_enviado BOOLEAN NOT NULL DEFAULT false;
+
+-- Pulgar arriba/abajo en cada respuesta del asistente de IA (ver
+-- src/servicios/asistente.js). Guarda la pregunta y la respuesta tal cual
+-- se mostraron -- si luego se cambia el prompt o el modelo, este historial
+-- sigue reflejando lo que la persona realmente vio, no lo que respondería
+-- hoy la misma pregunta.
+CREATE TABLE IF NOT EXISTS asistente_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pregunta TEXT NOT NULL,
+  respuesta TEXT NOT NULL,
+  util BOOLEAN NOT NULL,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_asistente_feedback_creado_en
+  ON asistente_feedback (creado_en DESC);
