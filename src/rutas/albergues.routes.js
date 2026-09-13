@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { pool } from "../../db/pool.js";
-import { validarBody } from "../middleware/validate.js";
-import { albergueSchema, ocupacionSchema } from "../validation/schemas.js";
-import { limitadorEscrituraPublica } from "../middleware/rateLimit.js";
-import { requerirSesion, requerirRol } from "../middleware/auth.js";
+import { pool } from "../../bd/pool.js";
+import { validarBody } from "../intermediarios/validate.js";
+import { albergueSchema, ocupacionSchema } from "../validacion/schemas.js";
+import { limitadorEscrituraPublica } from "../intermediarios/rateLimit.js";
+import { requerirSesion, requerirRol } from "../intermediarios/auth.js";
+import { transmitir } from "../servicios/websocket.js";
 
 const router = Router();
 
@@ -38,10 +39,41 @@ router.post(
       const { rows } = await pool.query(
         `INSERT INTO albergues (nombre, direccion, capacidad, ubicacion)
        VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326))
-       RETURNING id`,
+       RETURNING id, nombre, direccion, capacidad, ocupacion_actual,
+                 ST_AsGeoJSON(ubicacion)::json AS ubicacion, activo`,
         [nombre, direccion ?? null, capacidad, lon, lat]
       );
+      // Todos los que tengan el mapa/reportes abiertos ven el albergue nuevo
+      // sin recargar -- mismo espíritu que reporte_ciudadano en reportes.routes.js.
+      transmitir("albergue_creado", rows[0]);
       res.status(201).json(rows[0]);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Baja lógica, no DELETE de la fila: si el albergue tuvo reportes u ocupación
+// registrada en el pasado, borrarlo de verdad rompería ese historial. Por
+// eso GET / ya filtra por activo = true.
+router.delete(
+  "/:id",
+  requerirSesion,
+  ROLES_GESTION_ALBERGUES,
+  limitadorEscrituraPublica,
+  async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(
+        `UPDATE albergues SET activo = false, actualizado_en = now()
+         WHERE id = $1
+         RETURNING id`,
+        [req.params.id]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Albergue no encontrado" });
+      }
+      transmitir("albergue_eliminado", { id: rows[0].id });
+      res.status(204).end();
     } catch (err) {
       next(err);
     }
@@ -66,6 +98,9 @@ router.patch(
       if (rows.length === 0) {
         return res.status(404).json({ error: "Albergue no encontrado" });
       }
+      // Así el cambio de aforo se ve en vivo en el mapa/feed público de
+      // cualquiera que esté mirando, no solo en la pestaña de quien lo editó.
+      transmitir("albergue_actualizado", rows[0]);
       res.json(rows[0]);
     } catch (err) {
       next(err);
