@@ -54,7 +54,7 @@ Si preferís crear el servicio a mano o usar Railway en vez de Render:
 - **Start command**: no hace falta, ya está en el `CMD` del Dockerfile (`node src/server.js`).
 - **Puerto**: el proceso escucha en `process.env.PORT` — Render/Railway lo inyectan solos.
   No hace falta configurar nada aparte para el WebSocket: va sobre el mismo puerto/proceso
-  (ver `src/services/websocket.js`), no hay un segundo puerto que exponer.
+  (ver `src/servicios/websocket.js`), no hay un segundo puerto que exponer.
 - **Health check path**: `/health`.
 - Cargar a mano las mismas env vars que en `render.yaml`.
 
@@ -89,7 +89,7 @@ del frontend en producción aunque el backend responda bien.
 
 ## 5. Reporte de errores con Sentry (opcional)
 
-Sin esto, los errores 500 siguen quedando en los logs (`src/lib/logger.js`, JSON
+Sin esto, los errores 500 siguen quedando en los logs (`src/utilidades/logger.js`, JSON
 estructurado), pero nadie se entera hasta que alguien los revisa a mano.
 
 1. Crear una cuenta gratis en [sentry.io](https://sentry.io).
@@ -98,14 +98,14 @@ estructurado), pero nadie se entera hasta que alguien los revisa a mano.
 4. Completarlo como `SENTRY_DSN` en Render (o en tu `.env` local si querés probarlo antes).
 
 Con eso activado, cualquier error 500 no controlado llega a Sentry con el stack
-trace completo — ver `src/lib/sentry.js` y `src/middleware/errorHandler.js`.
+trace completo — ver `src/utilidades/sentry.js` y `src/intermediarios/errorHandler.js`.
 
 ## 6. Notas sobre el plan gratuito de Render
 
 - Los servicios free "duermen" tras ~15 min sin tráfico y tardan unos segundos en
   despertar en la siguiente request — normal, no es un bug. Si el proyecto necesita
   estar siempre activo (demo en vivo), considerar el plan pago o un keep-alive externo.
-- `db/pool.js` limita el pool a `max: 5` conexiones — a propósito, para no agotar el
+- `bd/pool.js` limita el pool a `max: 5` conexiones — a propósito, para no agotar el
   límite de conexiones simultáneas del plan gratuito de Neon si Render llega a correr
   más de una instancia.
 - El apagado (`SIGTERM`) que Render manda en cada redeploy ya está manejado
@@ -116,7 +116,7 @@ trace completo — ver `src/lib/sentry.js` y `src/middleware/errorHandler.js`.
 
 ```bash
 npm run dev        # en una terminal
-npm run loadtest    # en otra — ver scripts/loadtest.js
+npm run loadtest    # en otra — ver herramientas/loadtest.js
 ```
 
 Corre tráfico concurrente contra `/health`, `/api/sensores`, `/api/reportes-ciudadanos`

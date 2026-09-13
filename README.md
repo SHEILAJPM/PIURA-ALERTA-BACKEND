@@ -81,14 +81,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 Usamos PostgreSQL con la extensión PostGIS (el servicio que usamos para hostearla es [Neon](https://neon.tech)).
 
-Todo el esquema está en [`db/schema.sql`](db/schema.sql) y se aplica corriendo `npm run db:migrate`. No usamos ningún ORM, escribimos el SQL a mano para tener control total sobre las consultas de mapas.
+Todo el esquema está en [`bd/schema.sql`](bd/schema.sql) y se aplica corriendo `npm run db:migrate`. No usamos ningún ORM, escribimos el SQL a mano para tener control total sobre las consultas de mapas.
 
 ### Las tablas principales
 
 **Lo del sensor** (sensor → lecturas → alertas → Telegram):
 
 - `sensores` — un registro por cada ESP32 físico, con su ubicación y los niveles que disparan cada alerta.
-- `lecturas` — cada medición que manda el sensor. Como llegan cada pocos segundos, esta tabla crece rápido, así que está dividida por mes. Un script (`src/jobs/particionesCron.js`) se encarga de crear la partición del mes siguiente automáticamente.
+- `lecturas` — cada medición que manda el sensor. Como llegan cada pocos segundos, esta tabla crece rápido, así que está dividida por mes. Un script (`src/tareas/particionesCron.js`) se encarga de crear la partición del mes siguiente automáticamente.
 - `eventos_alerta` — guarda cada vez que el estado del río cambia (normal → prealerta → alerta roja), para no mandar el mismo aviso de Telegram varias veces seguidas.
 - `suscriptores_telegram` — la lista de chats que reciben las alertas.
 
