@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../../bd/pool.js";
 import { requerirSesion, requerirRol } from "../intermediarios/auth.js";
+import { construirResumenImpacto } from "../servicios/resumenImpacto.js";
 
 const router = Router();
 
@@ -32,22 +33,17 @@ router.get("/", requerirSesion, requerirRol("administrador"), async (_req, res, 
       ),
     ]);
 
-    const usuariosPorRol = Object.fromEntries(usuarios.rows.map((r) => [r.rol, r.cantidad]));
-    const reportesPorEstado = Object.fromEntries(reportes.rows.map((r) => [r.estado, r.cantidad]));
-    const totalUsuarios = usuarios.rows.reduce((acc, r) => acc + r.cantidad, 0);
-    const totalReportes = reportes.rows.reduce((acc, r) => acc + r.cantidad, 0);
-
-    res.json({
-      usuarios_totales: totalUsuarios,
-      usuarios_por_rol: usuariosPorRol,
-      suscriptores_telegram: telegram.rows[0].cantidad,
-      suscriptores_push: push.rows[0].cantidad,
-      alertas_automaticas_enviadas: alertasEnviadas.rows[0].cantidad,
-      reportes_totales: totalReportes,
-      reportes_por_estado: reportesPorEstado,
-      polizas_vigentes: polizasVigentes.rows[0].cantidad,
-      chequeos_seguridad_ultimas_24h: chequeosRecientes.rows[0].cantidad,
-    });
+    res.json(
+      construirResumenImpacto({
+        usuariosPorRol: usuarios.rows,
+        suscriptoresTelegram: telegram.rows[0].cantidad,
+        suscriptoresPush: push.rows[0].cantidad,
+        alertasEnviadas: alertasEnviadas.rows[0].cantidad,
+        reportesPorEstado: reportes.rows,
+        polizasVigentes: polizasVigentes.rows[0].cantidad,
+        chequeosUltimas24h: chequeosRecientes.rows[0].cantidad,
+      })
+    );
   } catch (err) {
     next(err);
   }
