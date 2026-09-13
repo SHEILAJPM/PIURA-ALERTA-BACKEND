@@ -158,14 +158,23 @@ export const difusionSchema = z.object({
 
 // Forma estándar de PushSubscriptionJSON (la que entrega
 // PushSubscription.toJSON() en el navegador) — solo se validan los campos
-// que realmente se guardan.
-export const pushSuscripcionSchema = z.object({
-  endpoint: z.string().trim().url().max(500),
-  keys: z.object({
-    p256dh: z.string().trim().min(1).max(255),
-    auth: z.string().trim().min(1).max(255),
-  }),
-});
+// que realmente se guardan. lon/lat son opcionales: el navegador solo los
+// manda si el visitante dio permiso de geolocalización (ver
+// useNotificacionesPush.js); sin ellos, la suscripción sigue recibiendo
+// todas las notificaciones (ver notificarCambioEstadoPush en webpush.js).
+export const pushSuscripcionSchema = z
+  .object({
+    endpoint: z.string().trim().url().max(500),
+    keys: z.object({
+      p256dh: z.string().trim().min(1).max(255),
+      auth: z.string().trim().min(1).max(255),
+    }),
+    lon: lon.optional(),
+    lat: lat.optional(),
+  })
+  .refine((datos) => (datos.lon === undefined) === (datos.lat === undefined), {
+    message: "lon y lat deben enviarse juntos",
+  });
 
 export const pushDesuscripcionSchema = z.object({
   endpoint: z.string().trim().url().max(500),
@@ -209,3 +218,18 @@ export const sosSchema = z.object({
 export const sosEstadoSchema = z.object({
   estado: z.enum(["pendiente", "atendido"]),
 });
+
+// Todos los campos son opcionales (PATCH parcial: se manda solo lo que se
+// quiere tocar), salvo que no tiene sentido un request que no cambie nada.
+export const configuracionSchema = z
+  .object({
+    sms_habilitado: z.boolean().optional(),
+    email_habilitado: z.boolean().optional(),
+    push_habilitado: z.boolean().optional(),
+    telegram_habilitado: z.boolean().optional(),
+    radio_notificacion_push_km: z.number().finite().gt(0).lte(100).optional(),
+  })
+  .refine((datos) => Object.values(datos).some((v) => v !== undefined), {
+    message: "Nada para actualizar",
+  });
+

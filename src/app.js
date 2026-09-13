@@ -21,6 +21,7 @@ import asistenteRouter from "./rutas/asistente.routes.js";
 import chequeosRouter from "./rutas/chequeos.routes.js";
 import impactoRouter from "./rutas/impacto.routes.js";
 import sosRouter from "./rutas/sos.routes.js";
+import configuracionRouter from "./rutas/configuracion.routes.js";
 import { manejadorErrores } from "./intermediarios/errorHandler.js";
 import { limitadorGeneral } from "./intermediarios/rateLimit.js";
 
@@ -88,5 +89,6 @@ app.use("/api/asistente", asistenteRouter);
 app.use("/api/chequeos-seguridad", chequeosRouter);
 app.use("/api/impacto", impactoRouter);
 app.use("/api/sos", sosRouter);
+app.use("/api/configuracion", configuracionRouter);
 
 app.use(manejadorErrores);
