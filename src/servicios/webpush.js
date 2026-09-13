@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { pool } from "../../bd/pool.js";
 import { logger } from "../utilidades/logger.js";
+import { obtenerConfiguracion } from "./configuracion.js";
 
 const MENSAJES_ESTADO = {
   normal: "El nivel del río volvió a la normalidad.",
@@ -34,12 +35,25 @@ export function clavePublicaPush() {
   return habilitado ? process.env.VAPID_PUBLIC_KEY : null;
 }
 
-export async function guardarSuscripcionPush({ endpoint, keys }) {
+// lon/lat son opcionales (el visitante puede no haber dado permiso de
+// geolocalización): cuando faltan, ubicacion queda NULL y esa suscripción
+// sigue recibiendo todas las notificaciones (ver obtenerSuscripcionesParaEvento
+// más abajo). COALESCE en el UPDATE evita que una resuscripción sin ubicación
+// borre una que ya se había guardado antes para el mismo endpoint.
+export async function guardarSuscripcionPush({ endpoint, keys, lon, lat }) {
+  const tieneUbicacion = lon !== undefined && lat !== undefined;
   await pool.query(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
-    [endpoint, keys.p256dh, keys.auth]
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, ubicacion)
+     VALUES (
+       $1, $2, $3,
+       CASE WHEN $4::double precision IS NULL OR $5::double precision IS NULL
+            THEN NULL ELSE ST_SetSRID(ST_MakePoint($4, $5), 4326) END
+     )
+     ON CONFLICT (endpoint) DO UPDATE SET
+       p256dh = EXCLUDED.p256dh,
+       auth = EXCLUDED.auth,
+       ubicacion = COALESCE(EXCLUDED.ubicacion, push_subscriptions.ubicacion)`,
+    [endpoint, keys.p256dh, keys.auth, tieneUbicacion ? lon : null, tieneUbicacion ? lat : null]
   );
 }
 
@@ -88,9 +102,51 @@ export async function enviarATodos(
   return enviados;
 }
 
+// Qué tan cerca del sensor debe estar una zona de riesgo para considerarla
+// "la zona activa" de este evento (el sensor no vive necesariamente dentro
+// del polígono dibujado en el mapa, pero si está a un par de km es la zona
+// que ese sensor está vigilando).
+const RADIO_DETECCION_ZONA_M = 3000;
+
+// Filtra los destinatarios de un aviso automático por cercanía a la zona de
+// riesgo activa, para no despertar con una alerta roja de un sensor del otro
+// lado de la ciudad a alguien que vive lejos de ahí. Dos casos siguen
+// recibiendo todo sin filtrar, a propósito:
+//   - "normal" (todo volvió a la normalidad): buena noticia para cualquiera
+//     que haya recibido la alerta original, esté donde esté.
+//   - suscripciones sin ubicación guardada (no dieron permiso de
+//     geolocalización): perderían el aviso por completo si se filtraran.
+async function obtenerSuscripcionesParaEvento(evento) {
+  if (evento.estado_nuevo === "normal") {
+    const { rows } = await pool.query("SELECT endpoint, p256dh, auth FROM push_subscriptions");
+    return rows;
+  }
+
+  const config = await obtenerConfiguracion();
+  const radioNotificacionM = Number(config.radio_notificacion_push_km) * 1000;
+
+  const { rows } = await pool.query(
+    `WITH zona AS (
+       SELECT ST_Union(z.geom) AS geom
+       FROM zonas_riesgo z, sensores s
+       WHERE s.id = $1 AND ST_DWithin(z.geom::geography, s.ubicacion::geography, $2)
+     )
+     SELECT p.endpoint, p.p256dh, p.auth
+     FROM push_subscriptions p, zona
+     WHERE zona.geom IS NULL
+        OR p.ubicacion IS NULL
+        OR ST_DWithin(p.ubicacion::geography, zona.geom::geography, $3)`,
+    [evento.sensor_id, RADIO_DETECCION_ZONA_M, radioNotificacionM]
+  );
+  return rows;
+}
+
 export async function notificarCambioEstadoPush(evento) {
   if (!habilitado) return;
-  const { rows } = await pool.query("SELECT endpoint, p256dh, auth FROM push_subscriptions");
+  const config = await obtenerConfiguracion();
+  if (!config.push_habilitado) return;
+
+  const rows = await obtenerSuscripcionesParaEvento(evento);
   if (rows.length === 0) return;
 
   const payload = JSON.stringify({
