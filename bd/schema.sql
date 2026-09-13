@@ -396,3 +396,39 @@ ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS ubicacion GEOMETRY(Point
 
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_ubicacion
   ON push_subscriptions USING GIST (ubicacion);
+
+-- ============================================================
+-- 6. VERIFICACIÓN DE CORREO Y DOBLE AUTENTICACIÓN
+-- ============================================================
+
+-- No bloquea el acceso (una cuenta sin verificar sigue pudiendo reportar,
+-- dar like, etc.) -- es solo una señal para invitar a confirmar el correo,
+-- no una restricción de seguridad. Ver POST /api/auth/registro.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS correo_verificado BOOLEAN NOT NULL DEFAULT false;
+
+-- Mismo patrón que restablecimientos_password: se guarda el hash del token,
+-- nunca el token en claro.
+CREATE TABLE IF NOT EXISTS verificaciones_correo (
+  id BIGSERIAL PRIMARY KEY,
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expira_en TIMESTAMPTZ NOT NULL,
+  usado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verificaciones_correo_usuario ON verificaciones_correo (usuario_id);
+
+-- Doble autenticación por correo para roles operativos (operario/defensa
+-- civil/administrador): manejan datos sensibles y pueden difundir alertas
+-- masivas, a diferencia de un ciudadano normal. `id` hace de referencia no
+-- secreta para el intercambio (POST /api/auth/verificar-2fa); el secreto es
+-- el código de 6 dígitos, que solo viaja hasheado acá y en claro por correo.
+CREATE TABLE IF NOT EXISTS verificaciones_2fa (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  codigo_hash TEXT NOT NULL,
+  expira_en TIMESTAMPTZ NOT NULL,
+  usado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);

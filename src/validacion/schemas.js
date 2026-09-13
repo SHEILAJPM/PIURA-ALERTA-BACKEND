@@ -233,3 +233,17 @@ export const configuracionSchema = z
     message: "Nada para actualizar",
   });
 
+export const verificarCorreoSchema = z.object({
+  token: z.string().trim().min(1).max(200),
+});
+
+// Código de 6 dígitos que llega por correo (ver POST /api/auth/login para
+// roles operativos); referencia identifica QUÉ código, no lo reemplaza.
+export const login2FASchema = z.object({
+  referencia: z.string().uuid(),
+  codigo: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "debe tener 6 dígitos"),
+});
+
