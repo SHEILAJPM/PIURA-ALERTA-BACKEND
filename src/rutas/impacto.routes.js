@@ -9,29 +9,20 @@ const router = Router();
 // gente está cubierta por el sistema y cuánto se usó, en una sola pantalla.
 // Todo son COUNT/MAX de tablas que ya existen -- no se agrega nada nuevo acá,
 // solo se junta lo que ya se registra en cada función por separado.
-router.get("/", requerirSesion, requerirRol("administrador"), async (_req, res, next) => {
+router.get("/", requerirSesion, requerirRol("administrador", "defensa_civil"), async (_req, res, next) => {
   try {
-    const [
-      usuarios,
-      telegram,
-      push,
-      alertasEnviadas,
-      reportes,
-      polizasVigentes,
-      chequeosRecientes,
-    ] = await Promise.all([
-      pool.query("SELECT rol, count(*)::int AS cantidad FROM usuarios GROUP BY rol"),
-      pool.query("SELECT count(*)::int AS cantidad FROM suscriptores_telegram WHERE activo = true"),
-      pool.query("SELECT count(*)::int AS cantidad FROM push_subscriptions"),
-      pool.query("SELECT count(*)::int AS cantidad FROM eventos_alerta WHERE notificado_telegram = true"),
-      pool.query(
-        `SELECT estado, count(*)::int AS cantidad FROM reportes_ciudadanos GROUP BY estado`
-      ),
-      pool.query("SELECT count(*)::int AS cantidad FROM polizas_seguro WHERE fecha_fin > now()"),
-      pool.query(
-        "SELECT count(DISTINCT usuario_id)::int AS cantidad FROM chequeos_seguridad WHERE creado_en > now() - interval '24 hours'"
-      ),
-    ]);
+    const [usuarios, telegram, push, alertasEnviadas, reportes, polizasVigentes, chequeosRecientes] =
+      await Promise.all([
+        pool.query("SELECT rol, count(*)::int AS cantidad FROM usuarios GROUP BY rol"),
+        pool.query("SELECT count(*)::int AS cantidad FROM suscriptores_telegram WHERE activo = true"),
+        pool.query("SELECT count(*)::int AS cantidad FROM push_subscriptions"),
+        pool.query("SELECT count(*)::int AS cantidad FROM eventos_alerta WHERE notificado_telegram = true"),
+        pool.query(`SELECT estado, count(*)::int AS cantidad FROM reportes_ciudadanos GROUP BY estado`),
+        pool.query("SELECT count(*)::int AS cantidad FROM polizas_seguro WHERE fecha_fin > now()"),
+        pool.query(
+          "SELECT count(DISTINCT usuario_id)::int AS cantidad FROM chequeos_seguridad WHERE creado_en > now() - interval '24 hours'"
+        ),
+      ]);
 
     res.json(
       construirResumenImpacto({
