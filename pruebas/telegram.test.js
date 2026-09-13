@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enviarATodos } from "../src/servicios/telegram.js";
+import { enviarATodos, escaparMarkdown } from "../src/servicios/telegram.js";
 
 test("enviarATodos: manda a todos si entran en una sola tanda", async () => {
   const llamados = [];
@@ -54,4 +54,15 @@ test("enviarATodos: lista vacía no llama a enviar ni falla", async () => {
 
   assert.equal(enviados, 0);
   assert.equal(llamado, false);
+});
+
+test("escaparMarkdown: escapa _, *, ` y [ para que Telegram no los interprete como formato", () => {
+  assert.equal(escaparMarkdown("Jean_Pierre"), "Jean\\_Pierre");
+  assert.equal(escaparMarkdown("*Ana*"), "\\*Ana\\*");
+  assert.equal(escaparMarkdown("`código`"), "\\`código\\`");
+  assert.equal(escaparMarkdown("[link]"), "\\[link]");
+});
+
+test("escaparMarkdown: un nombre sin caracteres especiales queda igual", () => {
+  assert.equal(escaparMarkdown("Sheila"), "Sheila");
 });
