@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { pool } from "../../db/pool.js";
-import { transmitir } from "../services/websocket.js";
-import { validarBody } from "../middleware/validate.js";
-import { reporteSchema, estadoReporteSchema } from "../validation/schemas.js";
-import { limitadorEscrituraPublica } from "../middleware/rateLimit.js";
-import { requerirSesion, requerirRol, autenticacionOpcional } from "../middleware/auth.js";
-import { analizarReporte } from "../services/moderacionIA.js";
+import { pool } from "../../bd/pool.js";
+import { transmitir } from "../servicios/websocket.js";
+import { validarBody } from "../intermediarios/validate.js";
+import { reporteSchema, estadoReporteSchema } from "../validacion/schemas.js";
+import { limitadorEscrituraPublica } from "../intermediarios/rateLimit.js";
+import { requerirSesion, requerirRol, autenticacionOpcional } from "../intermediarios/auth.js";
+import { analizarReporte } from "../servicios/moderacionIA.js";
 
 const router = Router();
 
@@ -13,11 +13,17 @@ const router = Router();
 // último reporte recibido> para pedir la página siguiente. Más estable que
 // OFFSET si llegan reportes nuevos mientras se pagina (no salta ni repite
 // filas) y no se degrada con páginas lejanas.
-// Operario/Defensa Civil moderan lo pendiente: una vez verificado o
-// descartado deja de ser su responsabilidad, así que ni siquiera lo
-// reciben acá (no es solo ocultarlo en la UI del panel). Administrador
-// conserva el archivo completo; el feed público (ciudadano/anónimo)
-// tampoco se filtra.
+// Tres audiencias, tres recortes de estado:
+// - Operario/Defensa Civil moderan lo pendiente y nada más: una vez
+//   verificado o descartado deja de ser su responsabilidad.
+// - Administrador ve el archivo completo (pendiente/verificado/descartado)
+//   SOLO cuando pide incluirArchivados=true (panel de moderación, ver
+//   admin/Reportes.jsx) — sin ese flag ve el mismo feed limpio que cualquier
+//   otro usuario, para que "administrador" no sea sinónimo de "el feed
+//   normal me muestra basura archivada".
+// - Ciudadano/anónimo (el feed público) nunca ve 'descartado': archivar un
+//   reporte (a mano o por la IA en moderacionIA.js) tiene que sacarlo de la
+//   vista de todos, no solo del panel de moderación.
 const ROLES_SOLO_PENDIENTES = ["operario", "defensa_civil"];
 
 router.get("/", autenticacionOpcional, async (req, res, next) => {
@@ -29,6 +35,7 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
         ? req.query.antes
         : null;
     const soloPendientes = ROLES_SOLO_PENDIENTES.includes(req.usuario?.rol);
+    const verArchivados = req.usuario?.rol === "administrador" && req.query.incluirArchivados === "true";
 
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
@@ -43,10 +50,14 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
        LEFT JOIN usuarios u ON u.id = r.usuario_id
        WHERE ($3 = false OR r.foto_url IS NOT NULL)
          AND ($4::timestamptz IS NULL OR r.creado_en < $4::timestamptz)
-         AND ($5 = false OR r.estado = 'pendiente')
+         AND (
+           ($5 = true AND r.estado = 'pendiente')
+           OR $6 = true
+           OR ($5 = false AND $6 = false AND r.estado <> 'descartado')
+         )
        ORDER BY r.creado_en DESC
        LIMIT $1`,
-      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes]
+      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes, verArchivados]
     );
     res.json(rows);
   } catch (err) {
@@ -69,10 +80,15 @@ router.post(
       const nombreMostrado = req.usuario?.nombre ?? autorNombre ?? "Anónimo";
 
       // Best-effort (nunca lanza, nunca bloquea el reporte): ver moderacionIA.js.
-      const analisis = await analizarReporte(descripcion);
+      // fuera_de_tema=true (con confianza, según el prompt) archiva el reporte
+      // de una vez -- no llega a mostrarse al público ni a la cola de
+      // moderación. Cualquier otro caso (incluido "no se pudo analizar") sigue
+      // el flujo normal: pendiente, con posible_spam como pista para el humano.
+      const analisis = await analizarReporte({ descripcion, fotoUrl });
+      const archivadoPorIA = analisis?.fuera_de_tema === true;
 
       const tieneUbicacion = typeof lon === "number" && typeof lat === "number";
-      const params = [usuarioId, usuarioId ? null : nombreMostrado, descripcion, fotoUrl ?? null];
+      const params = [usuarioId, usuarioId ? null : nombreMostrado, descripcion, fotoUrl];
       let ubicacionSql = "NULL";
       if (tieneUbicacion) {
         params.push(lon, lat);
@@ -80,17 +96,22 @@ router.post(
       }
       const idxSpam = params.length + 1;
       const idxMotivo = params.length + 2;
-      params.push(analisis?.es_sospechoso ?? null, analisis?.motivo ?? null);
+      const idxEstado = params.length + 3;
+      params.push(analisis?.es_sospechoso ?? null, analisis?.motivo ?? null, archivadoPorIA ? "descartado" : "pendiente");
 
       const { rows } = await pool.query(
-        `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion, posible_spam, motivo_ia)
-       VALUES ($1, $2, $3, $4, ${ubicacionSql}, $${idxSpam}, $${idxMotivo})
+        `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion, posible_spam, motivo_ia, estado)
+       VALUES ($1, $2, $3, $4, ${ubicacionSql}, $${idxSpam}, $${idxMotivo}, $${idxEstado})
        RETURNING id, descripcion, foto_url, estado, likes_count, creado_en, posible_spam, motivo_ia`,
         params
       );
 
       const reporte = { ...rows[0], usuario_id: usuarioId, usuario_nombre: nombreMostrado, te_gusta: false };
-      transmitir("reporte_ciudadano", reporte);
+      // Un reporte que la IA ya archivó no debe aparecer ni un instante en el
+      // feed en vivo de nadie que esté conectado en ese momento.
+      if (!archivadoPorIA) {
+        transmitir("reporte_ciudadano", reporte);
+      }
       res.status(201).json(reporte);
     } catch (err) {
       next(err);
@@ -148,7 +169,7 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
 });
 
 // Moderación: solo roles no públicos pueden cambiar el estado de un reporte
-// (ver rol en db/schema.sql). El registro público nunca crea estos roles.
+// (ver rol en bd/schema.sql). El registro público nunca crea estos roles.
 router.patch(
   "/:id/estado",
   requerirSesion,

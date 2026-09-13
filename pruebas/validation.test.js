@@ -11,7 +11,7 @@ import {
   perfilSchema,
   olvidePasswordSchema,
   restablecerPasswordSchema,
-} from "../src/validation/schemas.js";
+} from "../src/validacion/schemas.js";
 
 test("lecturaSchema: acepta nivel_cm válido", () => {
   const resultado = lecturaSchema.safeParse({ nivel_cm: 12.5 });
@@ -58,23 +58,34 @@ test("ocupacionSchema: rechaza valores negativos", () => {
   assert.equal(resultado.success, false);
 });
 
+const FOTO_URL = "https://example.com/foto.jpg";
+
 test("reporteSchema: requiere descripcion", () => {
-  const resultado = reporteSchema.safeParse({ descripcion: "" });
+  const resultado = reporteSchema.safeParse({ descripcion: "", foto_url: FOTO_URL });
+  assert.equal(resultado.success, false);
+});
+
+test("reporteSchema: requiere foto_url", () => {
+  const resultado = reporteSchema.safeParse({ descripcion: "Calle inundada" });
   assert.equal(resultado.success, false);
 });
 
 test("reporteSchema: lon y lat deben ir juntos", () => {
-  const resultado = reporteSchema.safeParse({ descripcion: "Calle inundada", lon: -80.6 });
+  const resultado = reporteSchema.safeParse({ descripcion: "Calle inundada", foto_url: FOTO_URL, lon: -80.6 });
   assert.equal(resultado.success, false);
 });
 
-test("reporteSchema: acepta reporte mínimo válido", () => {
-  const resultado = reporteSchema.safeParse({ descripcion: "Calle inundada" });
+test("reporteSchema: acepta reporte mínimo válido (descripción + foto)", () => {
+  const resultado = reporteSchema.safeParse({ descripcion: "Calle inundada", foto_url: FOTO_URL });
   assert.equal(resultado.success, true);
 });
 
 test("reporteSchema: acepta autor_nombre para reportes anónimos (sin sesión)", () => {
-  const resultado = reporteSchema.safeParse({ descripcion: "Calle inundada", autor_nombre: "Alguien" });
+  const resultado = reporteSchema.safeParse({
+    descripcion: "Calle inundada",
+    foto_url: FOTO_URL,
+    autor_nombre: "Alguien",
+  });
   assert.equal(resultado.success, true);
   assert.equal(resultado.data.autor_nombre, "Alguien");
 });

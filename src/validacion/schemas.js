@@ -30,7 +30,7 @@ export const reporteSchema = z
     // nombre sale de la cuenta y esto se ignora. Ver POST /api/reportes-ciudadanos.
     autor_nombre: z.string().trim().min(1).max(100).optional(),
     descripcion: z.string().trim().min(1).max(2000),
-    foto_url: z.string().trim().url().max(2000).optional(),
+    foto_url: z.string().trim().url().max(2000),
     lon: lon.optional(),
     lat: lat.optional(),
   })
@@ -117,6 +117,10 @@ export const ticketEstadoSchema = z.object({
   estado: z.enum(["abierto", "en_progreso", "cerrado"]),
 });
 
+export const activoSensorSchema = z.object({
+  activo: z.boolean(),
+});
+
 export const calibracionSchema = z
   .object({
     nivel_prealerta_cm: z.number().finite().gt(0).lte(2000),
@@ -165,4 +169,30 @@ export const pushSuscripcionSchema = z.object({
 
 export const pushDesuscripcionSchema = z.object({
   endpoint: z.string().trim().url().max(500),
+});
+
+export const checkoutSeguroSchema = z.object({
+  meses: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]),
+});
+
+// El historial va como pares pregunta/respuesta (no roles estilo OpenAI):
+// más simple de validar y de armar desde el chat del frontend. El límite de
+// 6 turnos acota cuánto contexto (y costo) manda cada request a Groq.
+export const preguntaAsistenteSchema = z.object({
+  pregunta: z.string().trim().min(1).max(500),
+  historial: z
+    .array(
+      z.object({
+        pregunta: z.string().trim().min(1).max(500),
+        respuesta: z.string().trim().min(1).max(2000),
+      })
+    )
+    .max(6)
+    .optional(),
+});
+
+export const feedbackAsistenteSchema = z.object({
+  pregunta: z.string().trim().min(1).max(500),
+  respuesta: z.string().trim().min(1).max(2000),
+  util: z.boolean(),
 });
