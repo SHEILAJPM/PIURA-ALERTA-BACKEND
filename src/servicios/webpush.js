@@ -141,6 +141,22 @@ async function obtenerSuscripcionesParaEvento(evento) {
   return rows;
 }
 
+// Recordatorio de "estoy a salvo" al entrar en alerta roja (ver
+// lecturas.routes.js). No se geo-filtra como notificarCambioEstadoPush: es un
+// recordatorio de baja frecuencia, no vale la pena la consulta a zonas_riesgo
+// solo para esto.
+export async function recordarSeguridadPush(mensaje) {
+  if (!habilitado) return;
+  const config = await obtenerConfiguracion();
+  if (!config.push_habilitado) return;
+
+  const { rows } = await pool.query("SELECT endpoint, p256dh, auth FROM push_subscriptions");
+  if (rows.length === 0) return;
+
+  const payload = JSON.stringify({ titulo: "Piura Alerta", cuerpo: mensaje, estado: "recordatorio" });
+  await enviarATodos(rows, payload);
+}
+
 export async function notificarCambioEstadoPush(evento) {
   if (!habilitado) return;
   const config = await obtenerConfiguracion();

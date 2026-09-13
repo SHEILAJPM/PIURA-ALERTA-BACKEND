@@ -108,6 +108,20 @@ export async function enviarMensajeATodos(mensaje) {
   return { enviados };
 }
 
+// Recordatorio de "estoy a salvo" al entrar en alerta roja (ver
+// lecturas.routes.js) -- aparte del aviso de cambio de estado de arriba, con
+// un mensaje propio y su propio texto, para no reescribir MENSAJES_ESTADO.
+export async function recordarSeguridad(mensaje) {
+  if (!bot) return;
+  const config = await obtenerConfiguracion();
+  if (!config.telegram_habilitado) return;
+  const { rows } = await pool.query("SELECT chat_id FROM suscriptores_telegram WHERE activo = true");
+  await enviarATodos(
+    rows.map((s) => s.chat_id),
+    mensaje
+  );
+}
+
 export async function notificarCambioEstado(evento) {
   if (!bot) return;
   // Interruptor global (ver src/servicios/configuracion.js): solo afecta el
