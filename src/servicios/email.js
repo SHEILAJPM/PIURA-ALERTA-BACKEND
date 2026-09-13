@@ -1,48 +1,81 @@
-import { Resend } from "resend";
-import { logger } from "../lib/logger.js";
+import { logger } from "../utilidades/logger.js";
 
-let resend = null;
+const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 
-// Igual que Telegram/Web Push/Twilio: sin cuenta de Resend configurada, el
+let apiKey = null;
+
+// Igual que Telegram/Web Push/Twilio: sin cuenta de Brevo configurada, el
 // envío de correos queda desactivado sin romper nada más.
 export function iniciarEmail() {
-  const apiKey = process.env.RESEND_API_KEY;
+  apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
-    logger.warn("RESEND_API_KEY no configurado: el correo de recuperación de contraseña queda desactivado.");
-    return;
+    logger.warn("BREVO_API_KEY no configurado: los correos (recuperación, avisos) quedan desactivados.");
   }
-  resend = new Resend(apiKey);
 }
 
-export async function enviarCorreoRecuperacion(correo, enlace) {
-  if (!resend) {
+// Compartida por cualquier correo que mande el backend (recuperación de
+// contraseña, aviso de vencimiento de póliza, etc.) para no repetir el
+// fetch a Brevo en cada uno. `avisoDev` es lo que queda en el log cuando no
+// hay cuenta de Brevo configurada, para poder probar el flujo en local.
+async function enviarCorreo({ correo, asunto, html, avisoDev }) {
+  if (!apiKey) {
     // Fallback de desarrollo (nunca en producción): sin esto, no hay forma de
-    // probar el flujo completo de "olvidé mi contraseña" localmente sin ya
-    // tener una cuenta de Resend configurada.
+    // probar estos flujos localmente sin ya tener una cuenta de Brevo.
     if (process.env.NODE_ENV !== "production") {
-      logger.warn(
-        { enlace },
-        "RESEND_API_KEY no configurado: el enlace de recuperación solo queda en este log."
-      );
+      logger.warn(avisoDev, "BREVO_API_KEY no configurado: el correo solo queda en este log.");
     }
     return;
   }
 
-  // El SDK de Resend no lanza en errores de la API (dominio no verificado,
-  // límite de la cuenta, etc.) — devuelve { data, error } — así que hay que
-  // revisar `error` a mano, si no un fallo real del envío queda invisible.
-  const { error } = await resend.emails.send({
-    from: process.env.RESEND_FROM ?? "Piura Alerta <onboarding@resend.dev>",
-    to: correo,
-    subject: "Recupera tu contraseña — Piura Alerta",
+  const res = await fetch(BREVO_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "api-key": apiKey,
+    },
+    body: JSON.stringify({
+      sender: { email: process.env.BREVO_FROM ?? "onboarding@piuraalerta.pe", name: "Piura Alerta" },
+      to: [{ email: correo }],
+      subject: asunto,
+      htmlContent: html,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    logger.error({ status: res.status, body, correo }, "Error enviando correo vía Brevo");
+  }
+}
+
+export function enviarCorreoRecuperacion(correo, enlace) {
+  return enviarCorreo({
+    correo,
+    asunto: "Recupera tu contraseña — Piura Alerta",
     html: `
       <p>Recibimos una solicitud para restablecer tu contraseña en Piura Alerta.</p>
       <p><a href="${enlace}">Haz clic acá para elegir una nueva contraseña</a></p>
       <p>Si no fuiste tú, ignora este correo — el enlace expira en 1 hora y nadie más puede usarlo.</p>
     `,
+    avisoDev: { enlace },
   });
+}
 
-  if (error) {
-    logger.error({ err: error, correo }, "Error enviando correo de recuperación vía Resend");
-  }
+export function enviarCorreoVencimientoPoliza(correo, fechaFin) {
+  const fecha = new Date(fechaFin).toLocaleDateString("es-PE", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:5173";
+  return enviarCorreo({
+    correo,
+    asunto: "Tu seguro contra inundaciones está por vencer — Piura Alerta",
+    html: `
+      <p>Tu póliza del seguro contra inundaciones de Piura Alerta vence el <strong>${fecha}</strong>.</p>
+      <p>Renueva antes de esa fecha para no quedarte sin cobertura durante una crecida del río.</p>
+      <p><a href="${frontendUrl}/seguro">Renovar mi cobertura</a></p>
+    `,
+    avisoDev: { correo, fechaFin },
+  });
 }
