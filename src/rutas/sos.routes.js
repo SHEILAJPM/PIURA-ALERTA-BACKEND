@@ -36,8 +36,12 @@ router.post(
         const { rows: perfilRows } = await pool.query("SELECT nombre, telefono FROM usuarios WHERE id = $1", [
           usuarioId,
         ]);
-        nombreMostrado = perfilRows[0]?.nombre ?? nombreMostrado;
-        telefonoMostrado = perfilRows[0]?.telefono ?? telefonoMostrado;
+        // || (no ??): perfilSchema no exige mínimo de largo para teléfono
+        // (ver validacion/schemas.js), así que una cuenta con telefono = ''
+        // guardado no debería pisar un telefono_contacto real que sí vino en
+        // el body -- '' es tan "sin dato" como null acá.
+        nombreMostrado = perfilRows[0]?.nombre || nombreMostrado;
+        telefonoMostrado = perfilRows[0]?.telefono || telefonoMostrado;
       }
 
       const { rows } = await pool.query(
