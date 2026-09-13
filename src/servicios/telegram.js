@@ -64,16 +64,26 @@ export function iniciarTelegram(token) {
        ON CONFLICT (chat_id) DO UPDATE SET activo = true, nombre_usuario = EXCLUDED.nombre_usuario`,
       [chatId, nombreUsuario]
     );
+    const saludo = msg.chat.first_name ? `¡Hola, ${msg.chat.first_name}! 👋` : "¡Hola! 👋";
     await bot.sendMessage(
       chatId,
-      "✅ Te suscribiste a las alertas de PIURA ALERTA. Te avisaremos ante cualquier cambio en el nivel del río."
+      `${saludo} Quedaste suscrito a *Piura Alerta*, el sistema de monitoreo del río Piura.\n\n` +
+        "Te vamos a avisar apenas cambie el nivel del río:\n" +
+        "🟢 Normal\n" +
+        "🟡 Prealerta — el río está subiendo\n" +
+        "🔴 Alerta roja — nivel crítico, sigue las indicaciones de las autoridades\n\n" +
+        "Cuando quieras dejar de recibir avisos, escribe /stop.",
+      { parse_mode: "Markdown" }
     );
   });
 
   bot.onText(/\/stop/, async (msg) => {
     const chatId = msg.chat.id;
     await pool.query("UPDATE suscriptores_telegram SET activo = false WHERE chat_id = $1", [chatId]);
-    await bot.sendMessage(chatId, "❌ Cancelaste tu suscripción a las alertas.");
+    await bot.sendMessage(
+      chatId,
+      "❌ Cancelaste tu suscripción a las alertas de Piura Alerta. Si cambias de opinión, escribe /start cuando quieras."
+    );
   });
 
   return bot;

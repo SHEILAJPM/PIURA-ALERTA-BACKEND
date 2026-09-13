@@ -18,6 +18,9 @@ import pushRouter from "./rutas/push.routes.js";
 import polizasRouter from "./rutas/polizas.routes.js";
 import webhookStripeRouter from "./rutas/webhookStripe.routes.js";
 import asistenteRouter from "./rutas/asistente.routes.js";
+import chequeosRouter from "./rutas/chequeos.routes.js";
+import impactoRouter from "./rutas/impacto.routes.js";
+import sosRouter from "./rutas/sos.routes.js";
 import { manejadorErrores } from "./intermediarios/errorHandler.js";
 import { limitadorGeneral } from "./intermediarios/rateLimit.js";
 
@@ -82,5 +85,8 @@ app.use("/api/alertas", alertasRouter);
 app.use("/api/push", pushRouter);
 app.use("/api/polizas", polizasRouter);
 app.use("/api/asistente", asistenteRouter);
+app.use("/api/chequeos-seguridad", chequeosRouter);
+app.use("/api/impacto", impactoRouter);
+app.use("/api/sos", sosRouter);
 
 app.use(manejadorErrores);

@@ -40,12 +40,16 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
               ST_AsGeoJSON(r.ubicacion)::json AS ubicacion, r.estado, r.likes_count, r.creado_en,
-              r.posible_spam, r.motivo_ia,
+              r.posible_spam, r.motivo_ia, r.confirmaciones_count,
               u.id AS usuario_id, COALESCE(u.nombre, r.autor_nombre, 'Anónimo') AS usuario_nombre,
               EXISTS (
                 SELECT 1 FROM reportes_likes rl
                 WHERE rl.reporte_id = r.id AND rl.usuario_id = $2
-              ) AS te_gusta
+              ) AS te_gusta,
+              EXISTS (
+                SELECT 1 FROM reportes_confirmaciones rc
+                WHERE rc.reporte_id = r.id AND rc.usuario_id = $2
+              ) AS tu_confirmaste
        FROM reportes_ciudadanos r
        LEFT JOIN usuarios u ON u.id = r.usuario_id
        WHERE ($3 = false OR r.foto_url IS NOT NULL)
@@ -102,11 +106,17 @@ router.post(
       const { rows } = await pool.query(
         `INSERT INTO reportes_ciudadanos (usuario_id, autor_nombre, descripcion, foto_url, ubicacion, posible_spam, motivo_ia, estado)
        VALUES ($1, $2, $3, $4, ${ubicacionSql}, $${idxSpam}, $${idxMotivo}, $${idxEstado})
-       RETURNING id, descripcion, foto_url, estado, likes_count, creado_en, posible_spam, motivo_ia`,
+       RETURNING id, descripcion, foto_url, estado, likes_count, confirmaciones_count, creado_en, posible_spam, motivo_ia`,
         params
       );
 
-      const reporte = { ...rows[0], usuario_id: usuarioId, usuario_nombre: nombreMostrado, te_gusta: false };
+      const reporte = {
+        ...rows[0],
+        usuario_id: usuarioId,
+        usuario_nombre: nombreMostrado,
+        te_gusta: false,
+        tu_confirmaste: false,
+      };
       // Un reporte que la IA ya archivó no debe aparecer ni un instante en el
       // feed en vivo de nadie que esté conectado en ese momento.
       if (!archivadoPorIA) {
@@ -160,6 +170,56 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
 
     await client.query("COMMIT");
     res.json({ ...rows[0], te_gusta: !yaLeGustaba });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
+// Verificación comunitaria: aparte del like (aprecio), esto es "confirmo que
+// esto es real" -- una señal más para que el admin priorice qué revisar
+// primero (ver ReporteModeracion en el panel), sin reemplazar la moderación
+// humana ni la de la IA.
+router.post("/:id/confirmar", requerirSesion, limitadorEscrituraPublica, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: existentes } = await client.query(
+      "SELECT 1 FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2",
+      [req.params.id, req.usuario.id]
+    );
+
+    const yaConfirmaba = existentes.length > 0;
+    if (yaConfirmaba) {
+      await client.query("DELETE FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2", [
+        req.params.id,
+        req.usuario.id,
+      ]);
+    } else {
+      await client.query("INSERT INTO reportes_confirmaciones (reporte_id, usuario_id) VALUES ($1, $2)", [
+        req.params.id,
+        req.usuario.id,
+      ]);
+    }
+
+    const { rows } = await client.query(
+      `UPDATE reportes_ciudadanos
+       SET confirmaciones_count = confirmaciones_count + $2
+       WHERE id = $1
+       RETURNING id, confirmaciones_count`,
+      [req.params.id, yaConfirmaba ? -1 : 1]
+    );
+
+    if (rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Reporte no encontrado" });
+    }
+
+    await client.query("COMMIT");
+    res.json({ ...rows[0], tu_confirmaste: !yaConfirmaba });
   } catch (err) {
     await client.query("ROLLBACK");
     next(err);
