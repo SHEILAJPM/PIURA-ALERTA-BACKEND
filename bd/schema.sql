@@ -337,3 +337,26 @@ CREATE TABLE IF NOT EXISTS reportes_confirmaciones (
   creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (reporte_id, usuario_id)
 );
+
+-- Botón de pánico: a diferencia de chequeos_seguridad (pasivo, "estoy bien"),
+-- esto es "necesito ayuda ahora" -- no requiere cuenta (una emergencia real no
+-- debería esperar un login, mismo criterio que reportes_ciudadanos) por eso
+-- usuario_id es opcional y hay nombre/teléfono de contacto sueltos para poder
+-- ubicar a la persona igual. La ubicación sí es obligatoria: sin ella el
+-- aviso no sirve de nada.
+CREATE TABLE IF NOT EXISTS alertas_sos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario_id UUID REFERENCES usuarios(id),
+  nombre_contacto VARCHAR(100),
+  telefono_contacto VARCHAR(20),
+  ubicacion GEOMETRY(Point, 4326) NOT NULL,
+  estado VARCHAR(20) NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'atendido')),
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  atendido_en TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_alertas_sos_ubicacion
+  ON alertas_sos USING GIST (ubicacion);
+
+CREATE INDEX IF NOT EXISTS idx_alertas_sos_estado
+  ON alertas_sos (estado, creado_en DESC);
