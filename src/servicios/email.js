@@ -1,4 +1,5 @@
 import { logger } from "../utilidades/logger.js";
+import { obtenerConfiguracion } from "./configuracion.js";
 
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 
@@ -61,7 +62,13 @@ export function enviarCorreoRecuperacion(correo, enlace) {
   });
 }
 
-export function enviarCorreoVencimientoPoliza(correo, fechaFin) {
+export async function enviarCorreoVencimientoPoliza(correo, fechaFin) {
+  // Interruptor global (ver src/servicios/configuracion.js): solo afecta este
+  // aviso automático, nunca enviarCorreoRecuperacion, que es un flujo de
+  // cuenta (recuperar contraseña), no una alerta que se pueda apagar.
+  const config = await obtenerConfiguracion();
+  if (!config.email_habilitado) return;
+
   const fecha = new Date(fechaFin).toLocaleDateString("es-PE", {
     day: "2-digit",
     month: "long",

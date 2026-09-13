@@ -1,6 +1,7 @@
 import TelegramBot from "node-telegram-bot-api";
 import { pool } from "../../bd/pool.js";
 import { logger } from "../utilidades/logger.js";
+import { obtenerConfiguracion } from "./configuracion.js";
 
 const MENSAJES_ESTADO = {
   normal: "🟢 El nivel del río volvió a la normalidad.",
@@ -109,6 +110,11 @@ export async function enviarMensajeATodos(mensaje) {
 
 export async function notificarCambioEstado(evento) {
   if (!bot) return;
+  // Interruptor global (ver src/servicios/configuracion.js): solo afecta el
+  // aviso automático de cambio de estado, no la difusión manual de Defensa
+  // Civil (enviarMensajeATodos), que es una acción explícita y puntual.
+  const config = await obtenerConfiguracion();
+  if (!config.telegram_habilitado) return;
   const { rows } = await pool.query("SELECT chat_id FROM suscriptores_telegram WHERE activo = true");
   const mensaje = `${MENSAJES_ESTADO[evento.estado_nuevo] ?? evento.estado_nuevo}\nNivel actual: ${evento.nivel_cm} cm`;
   await enviarATodos(
