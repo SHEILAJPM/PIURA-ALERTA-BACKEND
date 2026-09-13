@@ -1,6 +1,6 @@
-import { pool } from "../../db/pool.js";
+import { pool } from "../../bd/pool.js";
 
-// Un sensor manda lecturas cada pocos segundos (ver db/schema.sql). Si no
+// Un sensor manda lecturas cada pocos segundos (ver bd/schema.sql). Si no
 // llegó ninguna en este umbral, es señal de una falla de hardware (batería,
 // conexión, sensor físico desconectado), no de que el río esté tranquilo.
 const UMBRAL_SIN_SENAL_MIN = 5;

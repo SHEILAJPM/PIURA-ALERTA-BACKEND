@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 const COSTO_HASH = 10;
 const EXPIRA_EN = "7d";
 
-// Falla al arrancar (igual que db/pool.js con DATABASE_URL) en vez de recién
+// Falla al arrancar (igual que bd/pool.js con DATABASE_URL) en vez de recién
 // al primer login/registro: sin esto, todo /api/auth/* y cualquier ruta con
 // requerirSesion responderían 500 en producción sin ninguna pista clara.
 if (!process.env.JWT_SECRET) {

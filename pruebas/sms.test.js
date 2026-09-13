@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enviarATodos, normalizarNumeroPeru } from "../src/services/sms.js";
+import { enviarATodos, normalizarNumeroPeru } from "../src/servicios/sms.js";
 
 test("normalizarNumeroPeru: acepta un celular peruano de 9 dígitos y le agrega +51", () => {
   assert.equal(normalizarNumeroPeru("987654321"), "+51987654321");

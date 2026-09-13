@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enviarATodos } from "../src/services/telegram.js";
+import { enviarATodos } from "../src/servicios/telegram.js";
 
 test("enviarATodos: manda a todos si entran en una sola tanda", async () => {
   const llamados = [];

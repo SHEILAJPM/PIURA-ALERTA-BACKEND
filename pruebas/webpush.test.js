@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enviarATodos } from "../src/services/webpush.js";
+import { enviarATodos } from "../src/servicios/webpush.js";
 
 function suscripcion(endpoint) {
   return { endpoint, p256dh: "clave", auth: "secreto" };
