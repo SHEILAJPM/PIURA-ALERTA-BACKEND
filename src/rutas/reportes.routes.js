@@ -137,6 +137,14 @@ router.post(
 // Toggle: si el usuario ya le dio like, lo quita; si no, lo agrega. Insert/delete
 // del like y el contador denormalizado van en la misma transacción para que
 // nunca queden desincronizados.
+//
+// El delta se calcula del rowCount real de la insert/delete, no de la lectura
+// SELECT de arriba: dos clicks casi simultáneos (o un doble-tap) pueden leer
+// "no existe" los dos antes de que cualquiera confirme su escritura -- con
+// INSERT liso, el segundo choca contra la PK compuesta (reporte_id,
+// usuario_id) y tira un 500 en vez de simplemente no sumar dos veces.
+// ON CONFLICT DO NOTHING lo vuelve un no-op silencioso, y el rowCount (0 o 1)
+// dice si esta request en particular fue la que realmente cambió algo.
 router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, res, next) => {
   const client = await pool.connect();
   try {
@@ -148,16 +156,19 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
     );
 
     const yaLeGustaba = existentes.length > 0;
+    let delta = 0;
     if (yaLeGustaba) {
-      await client.query("DELETE FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "DELETE FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = -1;
     } else {
-      await client.query("INSERT INTO reportes_likes (reporte_id, usuario_id) VALUES ($1, $2)", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "INSERT INTO reportes_likes (reporte_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = 1;
     }
 
     const { rows } = await client.query(
@@ -165,7 +176,7 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
        SET likes_count = likes_count + $2
        WHERE id = $1
        RETURNING id, likes_count`,
-      [req.params.id, yaLeGustaba ? -1 : 1]
+      [req.params.id, delta]
     );
 
     if (rows.length === 0) {
@@ -198,16 +209,19 @@ router.post("/:id/confirmar", requerirSesion, limitadorEscrituraPublica, async (
     );
 
     const yaConfirmaba = existentes.length > 0;
+    let delta = 0;
     if (yaConfirmaba) {
-      await client.query("DELETE FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "DELETE FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = -1;
     } else {
-      await client.query("INSERT INTO reportes_confirmaciones (reporte_id, usuario_id) VALUES ($1, $2)", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "INSERT INTO reportes_confirmaciones (reporte_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = 1;
     }
 
     const { rows } = await client.query(
@@ -215,7 +229,7 @@ router.post("/:id/confirmar", requerirSesion, limitadorEscrituraPublica, async (
        SET confirmaciones_count = confirmaciones_count + $2
        WHERE id = $1
        RETURNING id, confirmaciones_count`,
-      [req.params.id, yaConfirmaba ? -1 : 1]
+      [req.params.id, delta]
     );
 
     if (rows.length === 0) {
