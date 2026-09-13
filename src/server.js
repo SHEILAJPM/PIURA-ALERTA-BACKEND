@@ -1,25 +1,27 @@
 import "dotenv/config";
-// Antes que "./app.js" y su árbol de imports (rutas, servicios, db/pool.js):
+// Antes que "./app.js" y su árbol de imports (rutas, servicios, bd/pool.js):
 // si algo revienta durante la inicialización, igual queda reportado. Ver el
-// comentario en lib/sentry.js sobre por qué esto tiene que ser un import
+// comentario en utilidades/sentry.js sobre por qué esto tiene que ser un import
 // posicional y no una función que se llama después.
-import "./lib/sentry.js";
+import "./utilidades/sentry.js";
 import { app } from "./app.js";
-import { pool } from "../db/pool.js";
-import { logger } from "./lib/logger.js";
-import { iniciarWebSocket, cerrarWebSocket } from "./services/websocket.js";
-import { iniciarTelegram, detenerTelegram } from "./services/telegram.js";
-import { iniciarWebPush } from "./services/webpush.js";
-import { iniciarSMS } from "./services/sms.js";
-import { iniciarEmail } from "./services/email.js";
-import { iniciarIngestaSerial } from "./services/serialIngest.js";
-import { iniciarCronParticiones } from "./jobs/particionesCron.js";
-import { advertirSiSensorApiKeyFalta } from "./middleware/sensorAuth.js";
+import { pool } from "../bd/pool.js";
+import { logger } from "./utilidades/logger.js";
+import { iniciarWebSocket, cerrarWebSocket } from "./servicios/websocket.js";
+import { iniciarTelegram, detenerTelegram } from "./servicios/telegram.js";
+import { iniciarWebPush } from "./servicios/webpush.js";
+import { iniciarSMS } from "./servicios/sms.js";
+import { iniciarEmail } from "./servicios/email.js";
+import { iniciarPagos } from "./servicios/pagos.js";
+import { iniciarIngestaSerial } from "./servicios/serialIngest.js";
+import { iniciarCronParticiones } from "./tareas/particionesCron.js";
+import { iniciarCronAvisosVencimiento } from "./tareas/avisosVencimientoCron.js";
+import { advertirSiSensorApiKeyFalta } from "./intermediarios/sensorAuth.js";
 
 const PORT = process.env.PORT ?? 4000;
 const SENSOR_POR_DEFECTO = process.env.SIM_SENSOR_CODIGO ?? "RIO-PIURA-01";
 
-// El WebSocket se monta sobre el mismo servidor HTTP (ver services/websocket.js)
+// El WebSocket se monta sobre el mismo servidor HTTP (ver servicios/websocket.js)
 // en vez de un puerto aparte: un solo puerto público, como esperan la mayoría
 // de hosts (Render, Railway, Docker con un solo puerto mapeado).
 const server = app.listen(PORT, () => {
@@ -39,6 +41,10 @@ iniciarTelegram(process.env.TELEGRAM_BOT_TOKEN);
 iniciarWebPush();
 iniciarSMS();
 iniciarEmail();
+iniciarPagos();
+// Después de iniciarEmail()/iniciarPagos(): dispara un envío inmediato al
+// arrancar, así que las claves de Brevo ya deben estar cargadas.
+const tareaCronAvisos = iniciarCronAvisosVencimiento();
 advertirSiSensorApiKeyFalta();
 
 // Apagado ordenado: en Render/Railway/Docker, `docker stop`/redeploys mandan
@@ -52,6 +58,7 @@ async function apagar(señal) {
   console.log(`\n${señal} recibido, cerrando ordenadamente...`);
 
   tareaCron.stop();
+  tareaCronAvisos.stop();
   puertoSerial?.close?.();
   await detenerTelegram();
   await cerrarWebSocket();
