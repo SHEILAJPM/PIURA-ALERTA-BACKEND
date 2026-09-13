@@ -2,21 +2,24 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
-import { pool } from "../db/pool.js";
-import { logger } from "./lib/logger.js";
-import sensoresRouter from "./routes/sensores.routes.js";
-import lecturasRouter from "./routes/lecturas.routes.js";
-import alberguesRouter from "./routes/albergues.routes.js";
-import zonasRiesgoRouter from "./routes/zonasRiesgo.routes.js";
-import reportesRouter from "./routes/reportes.routes.js";
-import authRouter from "./routes/auth.routes.js";
-import usuariosRouter from "./routes/usuarios.routes.js";
-import auditoriaRouter from "./routes/auditoria.routes.js";
-import ticketsRouter from "./routes/tickets.routes.js";
-import alertasRouter from "./routes/alertas.routes.js";
-import pushRouter from "./routes/push.routes.js";
-import { manejadorErrores } from "./middleware/errorHandler.js";
-import { limitadorGeneral } from "./middleware/rateLimit.js";
+import { pool } from "../bd/pool.js";
+import { logger } from "./utilidades/logger.js";
+import sensoresRouter from "./rutas/sensores.routes.js";
+import lecturasRouter from "./rutas/lecturas.routes.js";
+import alberguesRouter from "./rutas/albergues.routes.js";
+import zonasRiesgoRouter from "./rutas/zonasRiesgo.routes.js";
+import reportesRouter from "./rutas/reportes.routes.js";
+import authRouter from "./rutas/auth.routes.js";
+import usuariosRouter from "./rutas/usuarios.routes.js";
+import auditoriaRouter from "./rutas/auditoria.routes.js";
+import ticketsRouter from "./rutas/tickets.routes.js";
+import alertasRouter from "./rutas/alertas.routes.js";
+import pushRouter from "./rutas/push.routes.js";
+import polizasRouter from "./rutas/polizas.routes.js";
+import webhookStripeRouter from "./rutas/webhookStripe.routes.js";
+import asistenteRouter from "./rutas/asistente.routes.js";
+import { manejadorErrores } from "./intermediarios/errorHandler.js";
+import { limitadorGeneral } from "./intermediarios/rateLimit.js";
 
 export const app = express();
 
@@ -49,6 +52,11 @@ app.use(
     },
   })
 );
+// Antes de express.json(): Stripe firma el body crudo, así que esta ruta
+// necesita los bytes tal cual llegan, no el objeto ya parseado. Ver
+// src/servicios/pagos.js (construirEventoWebhook).
+app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }), webhookStripeRouter);
+
 app.use(express.json({ limit: "1mb" }));
 app.use("/api", limitadorGeneral);
 
@@ -72,5 +80,7 @@ app.use("/api/auditoria", auditoriaRouter);
 app.use("/api/tickets", ticketsRouter);
 app.use("/api/alertas", alertasRouter);
 app.use("/api/push", pushRouter);
+app.use("/api/polizas", polizasRouter);
+app.use("/api/asistente", asistenteRouter);
 
 app.use(manejadorErrores);

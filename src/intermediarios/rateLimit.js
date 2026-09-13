@@ -33,6 +33,18 @@ export const limitadorEscrituraPublica = rateLimit({
   handler: respuestaLimite,
 });
 
+// Asistente con IA: cada pregunta le cuesta plata real a la cuenta de Groq,
+// a diferencia de las demás escrituras públicas que solo cuestan una fila en
+// la base. Límite más chico a propósito para que nadie pueda vaciar la cuota
+// gratuita de la cuenta mandando preguntas en loop.
+export const limitadorAsistente = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: respuestaLimite,
+});
+
 // Login: mucho más estricto que el límite general (300/5min compartido por
 // todo /api/*), para frenar fuerza bruta de contraseñas por IP sin depender
 // de un bloqueo por cuenta (que además abriría la puerta a bloquear a otro
