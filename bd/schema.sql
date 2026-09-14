@@ -60,7 +60,7 @@ $$ LANGUAGE plpgsql;
 -- para que siempre exista la partición del próximo mes.
 SELECT crear_particion_lecturas(CURRENT_DATE);
 SELECT crear_particion_lecturas((CURRENT_DATE + INTERVAL '1 month')::date);
-SELECT crear_particiWon_lecturas((CURRENT_DATE + INTERVAL '2 month')::date);
+SELECT crear_particion_lecturas((CURRENT_DATE + INTERVAL '2 month')::date);
 
 -- Registra cada CAMBIO de estado (normal->prealerta->alerta_roja), no cada
 -- lectura. Evita reenviar el mismo aviso de Telegram y da el historial de
