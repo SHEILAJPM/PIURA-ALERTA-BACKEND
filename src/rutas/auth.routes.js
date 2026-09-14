@@ -82,7 +82,7 @@ router.post("/login", limitadorLogin, validarBody(loginSchema), async (req, res,
   try {
     const { correo, password } = req.body;
     const { rows } = await pool.query(
-      "SELECT id, nombre, correo, password_hash, rol FROM usuarios WHERE correo = $1",
+      "SELECT id, nombre, correo, password_hash, rol, activo FROM usuarios WHERE correo = $1",
       [correo]
     );
 
@@ -96,7 +96,13 @@ router.post("/login", limitadorLogin, validarBody(loginSchema), async (req, res,
     const passwordValido = await verificarPassword(password, usuario.password_hash);
     if (!passwordValido) return credencialesInvalidas();
 
-    const { password_hash: _hash, ...usuarioPublico } = usuario;
+    // Recién después de validar la contraseña -- así una cuenta desactivada
+    // no le confirma a nadie que el correo existe con solo probar contraseñas.
+    if (!usuario.activo) {
+      return res.status(403).json({ error: "Tu cuenta está desactivada. Contacta a un administrador." });
+    }
+
+    const { password_hash: _hash, activo: _activo, ...usuarioPublico } = usuario;
 
     if (ROLES_CON_2FA.includes(usuario.rol)) {
       const codigo = generarCodigo6Digitos();

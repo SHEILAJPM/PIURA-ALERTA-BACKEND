@@ -106,6 +106,10 @@ export const rolSchema = z.object({
   rol: z.enum(["ciudadano", "operario", "defensa_civil", "administrador"]),
 });
 
+export const activoUsuarioSchema = z.object({
+  activo: z.boolean(),
+});
+
 export const ticketSchema = z.object({
   sensor_id: z.string().uuid().optional(),
   titulo: z.string().trim().min(1).max(150),
