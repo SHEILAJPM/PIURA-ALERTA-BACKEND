@@ -431,6 +431,13 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_ubicacion
 -- no una restricción de seguridad. Ver POST /api/auth/registro.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS correo_verificado BOOLEAN NOT NULL DEFAULT false;
 
+-- "Eliminar" una cuenta desde el panel admin es desactivarla, no borrar la
+-- fila -- reportes, pólizas, auditoría, etc. referencian usuarios(id) sin
+-- ON DELETE CASCADE, así que un DELETE real fallaría por llaves foráneas en
+-- cuanto la cuenta tuviera cualquier actividad. Mismo patrón que
+-- sensores.activo y suscriptores_telegram.activo.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
+
 -- Mismo patrón que restablecimientos_password: se guarda el hash del token,
 -- nunca el token en claro.
 CREATE TABLE IF NOT EXISTS verificaciones_correo (
