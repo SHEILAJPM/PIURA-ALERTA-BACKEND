@@ -23,10 +23,20 @@ export async function crearReclamo({ usuarioId, fecha_dano: fechaDano, descripci
     throw error;
   }
 
+  // Con el mismo shape que listarReclamosAdmin (meses/usuario_nombre/
+  // usuario_correo incluidos): así el panel admin puede insertar este
+  // reclamo tal cual en su lista al recibirlo por WebSocket, sin tener que
+  // pedirle campos de más al backend ni mostrar "undefined" mientras tanto.
   const { rows } = await pool.query(
-    `INSERT INTO reclamos_seguro (poliza_id, usuario_id, fecha_dano, descripcion, foto_urls)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING *`,
+    `WITH nuevo AS (
+       INSERT INTO reclamos_seguro (poliza_id, usuario_id, fecha_dano, descripcion, foto_urls)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *
+     )
+     SELECT nuevo.*, p.meses, u.nombre AS usuario_nombre, u.correo AS usuario_correo
+     FROM nuevo
+     JOIN polizas_seguro p ON p.id = nuevo.poliza_id
+     JOIN usuarios u ON u.id = nuevo.usuario_id`,
     [poliza.id, usuarioId, fechaDano, descripcion, fotoUrls]
   );
   return { ...rows[0], tope_indemnizacion_centavos: TOPES_INDEMNIZACION_CENTAVOS[poliza.meses] };
