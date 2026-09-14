@@ -298,6 +298,31 @@ CREATE INDEX IF NOT EXISTS idx_polizas_seguro_usuario_vigencia
 -- días re-notificaría lo mismo hasta que la póliza venza de verdad.
 ALTER TABLE polizas_seguro ADD COLUMN IF NOT EXISTS aviso_vencimiento_enviado BOOLEAN NOT NULL DEFAULT false;
 
+-- Reclamos por daños del río contra una póliza vigente al momento del daño
+-- (ver src/servicios/reclamosSeguro.js). El monto lo define un administrador
+-- caso por caso (evaluando fotos/descripción), con un tope según el plan
+-- contratado -- no hay cálculo automático de indemnización. El pago en sí
+-- (Yape, transferencia, etc.) se hace fuera del sistema; esta tabla solo
+-- lleva el registro de a cuánto se comprometió el equipo y si ya se pagó.
+CREATE TABLE IF NOT EXISTS reclamos_seguro (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  poliza_id UUID NOT NULL REFERENCES polizas_seguro(id),
+  usuario_id UUID NOT NULL REFERENCES usuarios(id),
+  fecha_dano TIMESTAMPTZ NOT NULL,
+  descripcion TEXT NOT NULL,
+  foto_urls TEXT[] NOT NULL DEFAULT '{}',
+  estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'
+    CHECK (estado IN ('pendiente', 'aprobado', 'rechazado', 'pagado')),
+  monto_aprobado_centavos INTEGER CHECK (monto_aprobado_centavos IS NULL OR monto_aprobado_centavos >= 0),
+  motivo_rechazo TEXT,
+  revisado_por UUID REFERENCES usuarios(id),
+  revisado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reclamos_seguro_usuario ON reclamos_seguro (usuario_id, creado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_reclamos_seguro_estado ON reclamos_seguro (estado, creado_en);
+
 -- Pulgar arriba/abajo en cada respuesta del asistente de IA (ver
 -- src/servicios/asistente.js). Guarda la pregunta y la respuesta tal cual
 -- se mostraron -- si luego se cambia el prompt o el modelo, este historial

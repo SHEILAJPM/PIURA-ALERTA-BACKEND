@@ -184,6 +184,29 @@ export const checkoutSeguroSchema = z.object({
   meses: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]),
 });
 
+export const crearReclamoSeguroSchema = z.object({
+  fecha_dano: z.coerce.date().max(new Date(), "La fecha del daño no puede ser futura"),
+  descripcion: z.string().trim().min(1).max(2000),
+  // Mismo patrón que foto_url en reporteSchema: la foto ya está subida a
+  // Cloudinary desde el navegador, acá solo llega la URL resultante.
+  foto_urls: z.array(z.string().trim().url().max(2000)).min(1).max(6),
+});
+
+export const revisarReclamoSeguroSchema = z
+  .object({
+    estado: z.enum(["aprobado", "rechazado", "pagado"]),
+    monto_aprobado_centavos: z.number().int().positive().optional(),
+    motivo_rechazo: z.string().trim().min(1).max(500).optional(),
+  })
+  .refine((d) => d.estado !== "aprobado" || d.monto_aprobado_centavos !== undefined, {
+    message: "Falta el monto aprobado",
+    path: ["monto_aprobado_centavos"],
+  })
+  .refine((d) => d.estado !== "rechazado" || d.motivo_rechazo !== undefined, {
+    message: "Falta el motivo de rechazo",
+    path: ["motivo_rechazo"],
+  });
+
 // El historial va como pares pregunta/respuesta (no roles estilo OpenAI):
 // más simple de validar y de armar desde el chat del frontend. El límite de
 // 6 turnos acota cuánto contexto (y costo) manda cada request a Groq.

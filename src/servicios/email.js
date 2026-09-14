@@ -96,6 +96,31 @@ export function enviarCorreoCodigo2FA(correo, codigo) {
   });
 }
 
+export async function enviarCorreoReclamoRevisado(correo, { estado, montoAprobadoCentavos, motivoRechazo }) {
+  // Mismo interruptor que enviarCorreoVencimientoPoliza: es un aviso
+  // automático, no un flujo de cuenta -- se puede apagar desde Configuración.
+  const config = await obtenerConfiguracion();
+  if (!config.email_habilitado) return;
+
+  const cuerpo =
+    estado === "aprobado"
+      ? `<p>Revisamos tu reclamo por daños del río y fue <strong>aprobado</strong> por un monto de
+         S/ ${(montoAprobadoCentavos / 100).toFixed(2)}.</p>
+         <p>Nos pondremos en contacto contigo para coordinar el pago.</p>`
+      : `<p>Revisamos tu reclamo por daños del río y no pudimos aprobarlo.</p>
+         <p><strong>Motivo:</strong> ${motivoRechazo}</p>`;
+
+  return enviarCorreo({
+    correo,
+    asunto:
+      estado === "aprobado"
+        ? "Tu reclamo fue aprobado — Piura Alerta"
+        : "Sobre tu reclamo del seguro — Piura Alerta",
+    html: cuerpo,
+    avisoDev: { correo, estado, montoAprobadoCentavos, motivoRechazo },
+  });
+}
+
 export async function enviarCorreoVencimientoPoliza(correo, fechaFin) {
   // Interruptor global (ver src/servicios/configuracion.js): solo afecta este
   // aviso automático, nunca enviarCorreoRecuperacion, que es un flujo de
