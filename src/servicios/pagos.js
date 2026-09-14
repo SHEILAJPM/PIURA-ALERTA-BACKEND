@@ -26,6 +26,17 @@ export const PLANES_SEGURO = {
   12: { meses: 12, descuento: 0.2 },
 };
 
+// Tope máximo que un administrador puede aprobar por reclamo, según el plan
+// contratado (ver src/servicios/reclamosSeguro.js) -- ajustable acá sin tocar
+// el resto de la lógica. No es un cálculo actuarial real, son montos de
+// referencia para un proyecto comunitario, no una aseguradora regulada.
+export const TOPES_INDEMNIZACION_CENTAVOS = {
+  1: 30000, // S/ 300
+  3: 60000, // S/ 600
+  6: 90000, // S/ 900
+  12: 150000, // S/ 1,500
+};
+
 export function calcularPrecioCentavos(meses) {
   const plan = PLANES_SEGURO[meses];
   const bruto = PRECIO_MENSUAL_CENTAVOS * plan.meses;

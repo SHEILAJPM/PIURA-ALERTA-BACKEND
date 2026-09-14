@@ -33,6 +33,19 @@ export const limitadorEscrituraPublica = rateLimit({
   handler: respuestaLimite,
 });
 
+// Botón de pánico: comparte IP con quien lo manda (una emergencia real puede
+// venir de un colegio, un edificio, una red WiFi compartida), así que un
+// límite pensado para tráfico humano normal (20/10min) bloquearía justo el
+// escenario de emergencia masiva para el que existe este botón. Mucho más
+// alto a propósito, sigue acotado porque cada envío igual escribe una fila.
+export const limitadorSOS = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: respuestaLimite,
+});
+
 // Asistente con IA: cada pregunta le cuesta plata real a la cuenta de Groq,
 // a diferencia de las demás escrituras públicas que solo cuestan una fila en
 // la base. Límite más chico a propósito para que nadie pueda vaciar la cuota

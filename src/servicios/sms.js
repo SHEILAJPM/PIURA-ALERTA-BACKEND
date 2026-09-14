@@ -1,6 +1,7 @@
 import twilio from "twilio";
 import { pool } from "../../bd/pool.js";
 import { logger } from "../utilidades/logger.js";
+import { obtenerConfiguracion } from "./configuracion.js";
 
 const MENSAJES_ESTADO = {
   normal: "Piura Alerta: el nivel del río volvió a la normalidad.",
@@ -67,6 +68,11 @@ export async function enviarATodos(
 
 export async function notificarCambioEstadoSMS(evento) {
   if (!cliente) return;
+  // Interruptor global (ver src/servicios/configuracion.js): independiente
+  // del opt-in de cada usuario, para poder cortar el canal completo sin
+  // redeploy (ej. Twilio se quedó sin saldo).
+  const config = await obtenerConfiguracion();
+  if (!config.sms_habilitado) return;
   // sensor_interes_id NULL = le interesan todos los sensores (default al
   // activar el opt-in); si lo seteó, solo se le manda cuando cambia ESE
   // sensor puntual — evita spam a alguien que solo le importa un punto

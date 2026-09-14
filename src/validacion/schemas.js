@@ -158,14 +158,23 @@ export const difusionSchema = z.object({
 
 // Forma estándar de PushSubscriptionJSON (la que entrega
 // PushSubscription.toJSON() en el navegador) — solo se validan los campos
-// que realmente se guardan.
-export const pushSuscripcionSchema = z.object({
-  endpoint: z.string().trim().url().max(500),
-  keys: z.object({
-    p256dh: z.string().trim().min(1).max(255),
-    auth: z.string().trim().min(1).max(255),
-  }),
-});
+// que realmente se guardan. lon/lat son opcionales: el navegador solo los
+// manda si el visitante dio permiso de geolocalización (ver
+// useNotificacionesPush.js); sin ellos, la suscripción sigue recibiendo
+// todas las notificaciones (ver notificarCambioEstadoPush en webpush.js).
+export const pushSuscripcionSchema = z
+  .object({
+    endpoint: z.string().trim().url().max(500),
+    keys: z.object({
+      p256dh: z.string().trim().min(1).max(255),
+      auth: z.string().trim().min(1).max(255),
+    }),
+    lon: lon.optional(),
+    lat: lat.optional(),
+  })
+  .refine((datos) => (datos.lon === undefined) === (datos.lat === undefined), {
+    message: "lon y lat deben enviarse juntos",
+  });
 
 export const pushDesuscripcionSchema = z.object({
   endpoint: z.string().trim().url().max(500),
@@ -174,6 +183,29 @@ export const pushDesuscripcionSchema = z.object({
 export const checkoutSeguroSchema = z.object({
   meses: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]),
 });
+
+export const crearReclamoSeguroSchema = z.object({
+  fecha_dano: z.coerce.date().max(new Date(), "La fecha del daño no puede ser futura"),
+  descripcion: z.string().trim().min(1).max(2000),
+  // Mismo patrón que foto_url en reporteSchema: la foto ya está subida a
+  // Cloudinary desde el navegador, acá solo llega la URL resultante.
+  foto_urls: z.array(z.string().trim().url().max(2000)).min(1).max(6),
+});
+
+export const revisarReclamoSeguroSchema = z
+  .object({
+    estado: z.enum(["aprobado", "rechazado", "pagado"]),
+    monto_aprobado_centavos: z.number().int().positive().optional(),
+    motivo_rechazo: z.string().trim().min(1).max(500).optional(),
+  })
+  .refine((d) => d.estado !== "aprobado" || d.monto_aprobado_centavos !== undefined, {
+    message: "Falta el monto aprobado",
+    path: ["monto_aprobado_centavos"],
+  })
+  .refine((d) => d.estado !== "rechazado" || d.motivo_rechazo !== undefined, {
+    message: "Falta el motivo de rechazo",
+    path: ["motivo_rechazo"],
+  });
 
 // El historial va como pares pregunta/respuesta (no roles estilo OpenAI):
 // más simple de validar y de armar desde el chat del frontend. El límite de
@@ -209,3 +241,32 @@ export const sosSchema = z.object({
 export const sosEstadoSchema = z.object({
   estado: z.enum(["pendiente", "atendido"]),
 });
+
+// Todos los campos son opcionales (PATCH parcial: se manda solo lo que se
+// quiere tocar), salvo que no tiene sentido un request que no cambie nada.
+export const configuracionSchema = z
+  .object({
+    sms_habilitado: z.boolean().optional(),
+    email_habilitado: z.boolean().optional(),
+    push_habilitado: z.boolean().optional(),
+    telegram_habilitado: z.boolean().optional(),
+    radio_notificacion_push_km: z.number().finite().gt(0).lte(100).optional(),
+  })
+  .refine((datos) => Object.values(datos).some((v) => v !== undefined), {
+    message: "Nada para actualizar",
+  });
+
+export const verificarCorreoSchema = z.object({
+  token: z.string().trim().min(1).max(200),
+});
+
+// Código de 6 dígitos que llega por correo (ver POST /api/auth/login para
+// roles operativos); referencia identifica QUÉ código, no lo reemplaza.
+export const login2FASchema = z.object({
+  referencia: z.string().uuid(),
+  codigo: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "debe tener 6 dígitos"),
+});
+

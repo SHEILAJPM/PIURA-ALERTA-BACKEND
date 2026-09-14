@@ -1,12 +1,17 @@
 import { Router } from "express";
 import { pool } from "../../bd/pool.js";
-import { transmitir } from "../servicios/websocket.js";
+import { transmitirRestringido } from "../servicios/websocket.js";
 import { validarBody } from "../intermediarios/validate.js";
 import { sosSchema, sosEstadoSchema } from "../validacion/schemas.js";
-import { limitadorEscrituraPublica } from "../intermediarios/rateLimit.js";
+import { limitadorSOS } from "../intermediarios/rateLimit.js";
 import { requerirSesion, requerirRol, autenticacionOpcional } from "../intermediarios/auth.js";
 
 const router = Router();
+
+// Quién puede ver una alerta SOS (ubicación exacta, nombre, teléfono): mismo
+// criterio en el GET/PATCH de abajo y en la transmisión por WebSocket -- ver
+// transmitirRestringido en websocket.js.
+const ROLES_SOS = ["administrador", "defensa_civil"];
 
 // Botón de pánico: no requiere sesión (mismo criterio que reportes_ciudadanos
 // -- una emergencia real no debería esperar un login). Se transmite por
@@ -14,14 +19,30 @@ const router = Router();
 router.post(
   "/",
   autenticacionOpcional,
-  limitadorEscrituraPublica,
+  limitadorSOS,
   validarBody(sosSchema),
   async (req, res, next) => {
     try {
       const { nombre_contacto: nombreContacto, telefono_contacto: telefonoContacto, lon, lat } = req.body;
       const usuarioId = req.usuario?.id ?? null;
-      const nombreMostrado = req.usuario?.nombre ?? nombreContacto ?? null;
-      const telefonoMostrado = req.usuario?.telefono ?? telefonoContacto ?? null;
+      let nombreMostrado = nombreContacto ?? null;
+      let telefonoMostrado = telefonoContacto ?? null;
+      if (usuarioId) {
+        // El JWT no trae teléfono (se emite liviano a propósito, ver
+        // generarToken en servicios/auth.js) -- sin esto, telefono_contacto
+        // quedaba siempre vacío para cualquier envío con sesión, sin importar
+        // lo que la cuenta tuviera guardado. Los datos de la cuenta pisan lo
+        // que haya venido en el body: son más confiables que texto libre.
+        const { rows: perfilRows } = await pool.query("SELECT nombre, telefono FROM usuarios WHERE id = $1", [
+          usuarioId,
+        ]);
+        // || (no ??): perfilSchema no exige mínimo de largo para teléfono
+        // (ver validacion/schemas.js), así que una cuenta con telefono = ''
+        // guardado no debería pisar un telefono_contacto real que sí vino en
+        // el body -- '' es tan "sin dato" como null acá.
+        nombreMostrado = perfilRows[0]?.nombre || nombreMostrado;
+        telefonoMostrado = perfilRows[0]?.telefono || telefonoMostrado;
+      }
 
       const { rows } = await pool.query(
         `INSERT INTO alertas_sos (usuario_id, nombre_contacto, telefono_contacto, ubicacion)
@@ -36,7 +57,7 @@ router.post(
         telefono_contacto: telefonoMostrado,
         ubicacion: { type: "Point", coordinates: [lon, lat] },
       };
-      transmitir("alerta_sos", alerta);
+      transmitirRestringido("alerta_sos", alerta, ROLES_SOS);
       res.status(201).json(alerta);
     } catch (err) {
       next(err);
@@ -47,7 +68,7 @@ router.post(
 // Panel de Defensa Civil/admin: solo lo pendiente por defecto (para que la
 // consola de despacho no se llene de casos ya resueltos), con lo más
 // reciente primero -- una emergencia nueva no debería quedar tapada.
-router.get("/", requerirSesion, requerirRol("administrador", "defensa_civil"), async (req, res, next) => {
+router.get("/", requerirSesion, requerirRol(...ROLES_SOS), async (req, res, next) => {
   try {
     const soloPendientes = req.query.incluirAtendidas !== "true";
     const { rows } = await pool.query(
@@ -67,7 +88,7 @@ router.get("/", requerirSesion, requerirRol("administrador", "defensa_civil"), a
 router.patch(
   "/:id/estado",
   requerirSesion,
-  requerirRol("administrador", "defensa_civil"),
+  requerirRol(...ROLES_SOS),
   validarBody(sosEstadoSchema),
   async (req, res, next) => {
     try {
@@ -87,7 +108,7 @@ router.patch(
         return res.status(404).json({ error: "Alerta no encontrada" });
       }
 
-      transmitir("alerta_sos_actualizada", rows[0]);
+      transmitirRestringido("alerta_sos_actualizada", rows[0], ROLES_SOS);
       res.json(rows[0]);
     } catch (err) {
       next(err);

@@ -1,4 +1,5 @@
 import { logger } from "../utilidades/logger.js";
+import { obtenerConfiguracion } from "./configuracion.js";
 
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 
@@ -61,7 +62,72 @@ export function enviarCorreoRecuperacion(correo, enlace) {
   });
 }
 
-export function enviarCorreoVencimientoPoliza(correo, fechaFin) {
+// A diferencia de enviarCorreoRecuperacion/enviarCorreoCodigo2FA, esto no es
+// un flujo de seguridad crítico -- no verificar el correo no bloquea el
+// acceso (ver POST /api/auth/registro), así que no hace falta consultar el
+// interruptor global de email_habilitado acá tampoco (ese solo gobierna
+// avisos automáticos, no acciones que la propia persona disparó).
+export function enviarCorreoVerificacion(correo, enlace) {
+  return enviarCorreo({
+    correo,
+    asunto: "Confirma tu correo — Piura Alerta",
+    html: `
+      <p>Gracias por registrarte en Piura Alerta.</p>
+      <p><a href="${enlace}">Haz clic acá para confirmar tu correo</a></p>
+      <p>Si no creaste esta cuenta, ignora este correo — el enlace expira en 24 horas.</p>
+    `,
+    avisoDev: { enlace },
+  });
+}
+
+// Doble autenticación para roles operativos (ver POST /api/auth/login):
+// tampoco depende de email_habilitado, es un paso de acceso a la cuenta, no
+// un aviso automático que se pueda apagar desde Configuración.
+export function enviarCorreoCodigo2FA(correo, codigo) {
+  return enviarCorreo({
+    correo,
+    asunto: `${codigo} es tu código de acceso — Piura Alerta`,
+    html: `
+      <p>Tu código de verificación para entrar a Piura Alerta es:</p>
+      <p style="font-size:28px;font-weight:bold;letter-spacing:4px;">${codigo}</p>
+      <p>Vence en 10 minutos. Si no fuiste tú quien intentó iniciar sesión, cambia tu contraseña.</p>
+    `,
+    avisoDev: { codigo },
+  });
+}
+
+export async function enviarCorreoReclamoRevisado(correo, { estado, montoAprobadoCentavos, motivoRechazo }) {
+  // Mismo interruptor que enviarCorreoVencimientoPoliza: es un aviso
+  // automático, no un flujo de cuenta -- se puede apagar desde Configuración.
+  const config = await obtenerConfiguracion();
+  if (!config.email_habilitado) return;
+
+  const cuerpo =
+    estado === "aprobado"
+      ? `<p>Revisamos tu reclamo por daños del río y fue <strong>aprobado</strong> por un monto de
+         S/ ${(montoAprobadoCentavos / 100).toFixed(2)}.</p>
+         <p>Nos pondremos en contacto contigo para coordinar el pago.</p>`
+      : `<p>Revisamos tu reclamo por daños del río y no pudimos aprobarlo.</p>
+         <p><strong>Motivo:</strong> ${motivoRechazo}</p>`;
+
+  return enviarCorreo({
+    correo,
+    asunto:
+      estado === "aprobado"
+        ? "Tu reclamo fue aprobado — Piura Alerta"
+        : "Sobre tu reclamo del seguro — Piura Alerta",
+    html: cuerpo,
+    avisoDev: { correo, estado, montoAprobadoCentavos, motivoRechazo },
+  });
+}
+
+export async function enviarCorreoVencimientoPoliza(correo, fechaFin) {
+  // Interruptor global (ver src/servicios/configuracion.js): solo afecta este
+  // aviso automático, nunca enviarCorreoRecuperacion, que es un flujo de
+  // cuenta (recuperar contraseña), no una alerta que se pueda apagar.
+  const config = await obtenerConfiguracion();
+  if (!config.email_habilitado) return;
+
   const fecha = new Date(fechaFin).toLocaleDateString("es-PE", {
     day: "2-digit",
     month: "long",

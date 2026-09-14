@@ -298,6 +298,31 @@ CREATE INDEX IF NOT EXISTS idx_polizas_seguro_usuario_vigencia
 -- días re-notificaría lo mismo hasta que la póliza venza de verdad.
 ALTER TABLE polizas_seguro ADD COLUMN IF NOT EXISTS aviso_vencimiento_enviado BOOLEAN NOT NULL DEFAULT false;
 
+-- Reclamos por daños del río contra una póliza vigente al momento del daño
+-- (ver src/servicios/reclamosSeguro.js). El monto lo define un administrador
+-- caso por caso (evaluando fotos/descripción), con un tope según el plan
+-- contratado -- no hay cálculo automático de indemnización. El pago en sí
+-- (Yape, transferencia, etc.) se hace fuera del sistema; esta tabla solo
+-- lleva el registro de a cuánto se comprometió el equipo y si ya se pagó.
+CREATE TABLE IF NOT EXISTS reclamos_seguro (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  poliza_id UUID NOT NULL REFERENCES polizas_seguro(id),
+  usuario_id UUID NOT NULL REFERENCES usuarios(id),
+  fecha_dano TIMESTAMPTZ NOT NULL,
+  descripcion TEXT NOT NULL,
+  foto_urls TEXT[] NOT NULL DEFAULT '{}',
+  estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'
+    CHECK (estado IN ('pendiente', 'aprobado', 'rechazado', 'pagado')),
+  monto_aprobado_centavos INTEGER CHECK (monto_aprobado_centavos IS NULL OR monto_aprobado_centavos >= 0),
+  motivo_rechazo TEXT,
+  revisado_por UUID REFERENCES usuarios(id),
+  revisado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reclamos_seguro_usuario ON reclamos_seguro (usuario_id, creado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_reclamos_seguro_estado ON reclamos_seguro (estado, creado_en);
+
 -- Pulgar arriba/abajo en cada respuesta del asistente de IA (ver
 -- src/servicios/asistente.js). Guarda la pregunta y la respuesta tal cual
 -- se mostraron -- si luego se cambia el prompt o el modelo, este historial
@@ -360,3 +385,75 @@ CREATE INDEX IF NOT EXISTS idx_alertas_sos_ubicacion
 
 CREATE INDEX IF NOT EXISTS idx_alertas_sos_estado
   ON alertas_sos (estado, creado_en DESC);
+
+-- ============================================================
+-- 5. CONFIGURACIÓN DEL SISTEMA: interruptores globales de notificaciones
+-- ============================================================
+
+-- Fila única (id fijo = 1): apaga/prende un canal de notificación para TODO
+-- el sistema, además del opt-in que ya tiene cada usuario/suscriptor. Sirve,
+-- por ejemplo, para cortar los SMS sin tocar código si Twilio se queda sin
+-- saldo, o ajustar el radio de las notificaciones push geolocalizadas sin
+-- redeploy. Solo gobierna avisos automáticos (cambio de estado del río,
+-- vencimiento de póliza) -- nunca la recuperación de contraseña, que es un
+-- flujo de cuenta, no una alerta. Ver src/servicios/configuracion.js.
+CREATE TABLE IF NOT EXISTS configuracion_sistema (
+  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  sms_habilitado BOOLEAN NOT NULL DEFAULT true,
+  email_habilitado BOOLEAN NOT NULL DEFAULT true,
+  push_habilitado BOOLEAN NOT NULL DEFAULT true,
+  telegram_habilitado BOOLEAN NOT NULL DEFAULT true,
+  -- Radio (desde el borde de la zona de riesgo activa) dentro del cual se
+  -- notifica a un suscriptor push con ubicación guardada. Ver
+  -- notificarCambioEstadoPush en src/servicios/webpush.js.
+  radio_notificacion_push_km NUMERIC(5,2) NOT NULL DEFAULT 5 CHECK (radio_notificacion_push_km > 0),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actualizado_por UUID REFERENCES usuarios(id)
+);
+
+INSERT INTO configuracion_sistema (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- Ubicación opcional del navegador que se suscribió (si dio permiso de
+-- geolocalización): permite mandar push solo a quienes están cerca de una
+-- zona de riesgo activa en vez de a todos los suscriptores. NULL = no dio
+-- permiso, sigue recibiendo todo como antes (ver notificarCambioEstadoPush).
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS ubicacion GEOMETRY(Point, 4326);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_ubicacion
+  ON push_subscriptions USING GIST (ubicacion);
+
+-- ============================================================
+-- 6. VERIFICACIÓN DE CORREO Y DOBLE AUTENTICACIÓN
+-- ============================================================
+
+-- No bloquea el acceso (una cuenta sin verificar sigue pudiendo reportar,
+-- dar like, etc.) -- es solo una señal para invitar a confirmar el correo,
+-- no una restricción de seguridad. Ver POST /api/auth/registro.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS correo_verificado BOOLEAN NOT NULL DEFAULT false;
+
+-- Mismo patrón que restablecimientos_password: se guarda el hash del token,
+-- nunca el token en claro.
+CREATE TABLE IF NOT EXISTS verificaciones_correo (
+  id BIGSERIAL PRIMARY KEY,
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expira_en TIMESTAMPTZ NOT NULL,
+  usado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verificaciones_correo_usuario ON verificaciones_correo (usuario_id);
+
+-- Doble autenticación por correo para roles operativos (operario/defensa
+-- civil/administrador): manejan datos sensibles y pueden difundir alertas
+-- masivas, a diferencia de un ciudadano normal. `id` hace de referencia no
+-- secreta para el intercambio (POST /api/auth/verificar-2fa); el secreto es
+-- el código de 6 dígitos, que solo viaja hasheado acá y en claro por correo.
+CREATE TABLE IF NOT EXISTS verificaciones_2fa (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  usuario_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  codigo_hash TEXT NOT NULL,
+  expira_en TIMESTAMPTZ NOT NULL,
+  usado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);

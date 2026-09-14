@@ -3,8 +3,8 @@ import { pool } from "../../bd/pool.js";
 import { procesarLectura } from "../servicios/alertEngine.js";
 import { estimarTiempoCrecida } from "../servicios/prediccion.js";
 import { transmitir } from "../servicios/websocket.js";
-import { notificarCambioEstado } from "../servicios/telegram.js";
-import { notificarCambioEstadoPush } from "../servicios/webpush.js";
+import { notificarCambioEstado, recordarSeguridad } from "../servicios/telegram.js";
+import { notificarCambioEstadoPush, recordarSeguridadPush } from "../servicios/webpush.js";
 import { notificarCambioEstadoSMS } from "../servicios/sms.js";
 import { validarBody } from "../intermediarios/validate.js";
 import { lecturaSchema } from "../validacion/schemas.js";
@@ -72,6 +72,16 @@ router.post(
         await notificarCambioEstado(evento);
         await notificarCambioEstadoPush(evento);
         await notificarCambioEstadoSMS(evento);
+
+        // Recordatorio de "estoy a salvo" (ver chequeos.routes.js): solo al
+        // ENTRAR en alerta roja, no en cada lectura mientras dure -- un
+        // recordatorio repetido cada pocos segundos sería spam, no ayuda.
+        if (evento.estado_nuevo === "alerta_roja") {
+          await recordarSeguridad(
+            "🔴 Sigue la alerta roja. Si estás bien, márcalo en la app con el botón 'Estoy a salvo'. Si ves a alguien en peligro, usa el botón de SOS."
+          );
+          await recordarSeguridadPush("Recuerda marcar 'Estoy a salvo' en la app mientras dure la alerta roja.");
+        }
       }
 
       res.status(201).json({ lectura, evento });

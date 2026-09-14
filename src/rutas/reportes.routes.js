@@ -36,6 +36,9 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
         : null;
     const soloPendientes = ROLES_SOLO_PENDIENTES.includes(req.usuario?.rol);
     const verArchivados = req.usuario?.rol === "administrador" && req.query.incluirArchivados === "true";
+    // "Mis reportes" (ver MisReportes.jsx): solo tiene sentido con sesión: sin
+    // usuario_id que comparar no hay "propios" que filtrar.
+    const soloMios = Boolean(req.usuario) && req.query.soloMios === "true";
 
     const { rows } = await pool.query(
       `SELECT r.id, r.descripcion, r.foto_url,
@@ -54,14 +57,16 @@ router.get("/", autenticacionOpcional, async (req, res, next) => {
        LEFT JOIN usuarios u ON u.id = r.usuario_id
        WHERE ($3 = false OR r.foto_url IS NOT NULL)
          AND ($4::timestamptz IS NULL OR r.creado_en < $4::timestamptz)
+         AND ($7 = false OR r.usuario_id = $2)
          AND (
            ($5 = true AND r.estado = 'pendiente')
            OR $6 = true
-           OR ($5 = false AND $6 = false AND r.estado <> 'descartado')
+           OR $7 = true
+           OR ($5 = false AND $6 = false AND $7 = false AND r.estado <> 'descartado')
          )
        ORDER BY r.creado_en DESC
        LIMIT $1`,
-      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes, verArchivados]
+      [limite, req.usuario?.id ?? null, soloConFoto, antes, soloPendientes, verArchivados, soloMios]
     );
     res.json(rows);
   } catch (err) {
@@ -132,10 +137,30 @@ router.post(
 // Toggle: si el usuario ya le dio like, lo quita; si no, lo agrega. Insert/delete
 // del like y el contador denormalizado van en la misma transacción para que
 // nunca queden desincronizados.
+//
+// El delta se calcula del rowCount real de la insert/delete, no de la lectura
+// SELECT de arriba: dos clicks casi simultáneos (o un doble-tap) pueden leer
+// "no existe" los dos antes de que cualquiera confirme su escritura -- con
+// INSERT liso, el segundo choca contra la PK compuesta (reporte_id,
+// usuario_id) y tira un 500 en vez de simplemente no sumar dos veces.
+// ON CONFLICT DO NOTHING lo vuelve un no-op silencioso, y el rowCount (0 o 1)
+// dice si esta request en particular fue la que realmente cambió algo.
 router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // Sin este lock, un like seguido de un unlike de verdad (dos requests
+    // distintas, no un doble-click de la misma) pueden pisarse: las dos
+    // transacciones leen "no existe" antes de que cualquiera confirme su
+    // escritura, y el toggle que debía cancelarse termina sumando en vez de
+    // anularse. pg_advisory_xact_lock serializa nada más que esta combinación
+    // puntual de reporte+usuario -- otros usuarios y otros reportes siguen
+    // sin bloquearse entre sí -- y se libera solo al terminar la transacción.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))", [
+      req.params.id,
+      req.usuario.id,
+    ]);
 
     const { rows: existentes } = await client.query(
       "SELECT 1 FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2",
@@ -143,16 +168,19 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
     );
 
     const yaLeGustaba = existentes.length > 0;
+    let delta = 0;
     if (yaLeGustaba) {
-      await client.query("DELETE FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "DELETE FROM reportes_likes WHERE reporte_id = $1 AND usuario_id = $2",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = -1;
     } else {
-      await client.query("INSERT INTO reportes_likes (reporte_id, usuario_id) VALUES ($1, $2)", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "INSERT INTO reportes_likes (reporte_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = 1;
     }
 
     const { rows } = await client.query(
@@ -160,7 +188,7 @@ router.post("/:id/like", requerirSesion, limitadorEscrituraPublica, async (req, 
        SET likes_count = likes_count + $2
        WHERE id = $1
        RETURNING id, likes_count`,
-      [req.params.id, yaLeGustaba ? -1 : 1]
+      [req.params.id, delta]
     );
 
     if (rows.length === 0) {
@@ -187,22 +215,32 @@ router.post("/:id/confirmar", requerirSesion, limitadorEscrituraPublica, async (
   try {
     await client.query("BEGIN");
 
+    // Mismo motivo que en /like (ver ese comentario): serializa solo esta
+    // combinación puntual de reporte+usuario.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))", [
+      req.params.id,
+      req.usuario.id,
+    ]);
+
     const { rows: existentes } = await client.query(
       "SELECT 1 FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2",
       [req.params.id, req.usuario.id]
     );
 
     const yaConfirmaba = existentes.length > 0;
+    let delta = 0;
     if (yaConfirmaba) {
-      await client.query("DELETE FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "DELETE FROM reportes_confirmaciones WHERE reporte_id = $1 AND usuario_id = $2",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = -1;
     } else {
-      await client.query("INSERT INTO reportes_confirmaciones (reporte_id, usuario_id) VALUES ($1, $2)", [
-        req.params.id,
-        req.usuario.id,
-      ]);
+      const resultado = await client.query(
+        "INSERT INTO reportes_confirmaciones (reporte_id, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [req.params.id, req.usuario.id]
+      );
+      if (resultado.rowCount > 0) delta = 1;
     }
 
     const { rows } = await client.query(
@@ -210,7 +248,7 @@ router.post("/:id/confirmar", requerirSesion, limitadorEscrituraPublica, async (
        SET confirmaciones_count = confirmaciones_count + $2
        WHERE id = $1
        RETURNING id, confirmaciones_count`,
-      [req.params.id, yaConfirmaba ? -1 : 1]
+      [req.params.id, delta]
     );
 
     if (rows.length === 0) {
