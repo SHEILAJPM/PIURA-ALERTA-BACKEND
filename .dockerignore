@@ -1,4 +1,4 @@
-node_modules
+ node_modules
 npm-debug.log
 .env
 .env.*
@@ -9,5 +9,4 @@ documentacion
 pruebas
 *.md
 .dockerignore
-Dockerfile
 render.yaml
